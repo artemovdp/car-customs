@@ -136,6 +136,35 @@ input:hover,select:hover{border-color:var(--muted);}
         border-radius:var(--r);cursor:grab;border:1px solid var(--accent);}
 .bm-btn:hover{filter:brightness(1.08);}
 .bm-btn:active{cursor:grabbing;}
+/* нумерация здесь оправдана: это реальная последовательность действий */
+.steps{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:8px;}
+.steps li{font-size:13.5px;color:var(--ink-soft);line-height:1.55;}
+.steps li::marker{font-family:var(--f-mono);font-size:12px;color:var(--muted);}
+
+/* ─── ЛОКАЛЬНЫЙ СЕРВЕР ─────────────────────────────────────────────── */
+details.local{border-top:1px solid var(--line-soft);}
+details.local > summary{padding:13px 16px;cursor:pointer;font-size:13.5px;
+  color:var(--ink-soft);display:flex;align-items:center;gap:10px;list-style:none;}
+details.local > summary::-webkit-details-marker{display:none;}
+details.local > summary::before{content:"▸";color:var(--muted);font-size:11px;
+  transition:transform .15s ease;display:inline-block;}
+details.local[open] > summary::before{transform:rotate(90deg);}
+details.local > summary:hover{color:var(--accent);}
+.srv-pill{margin-left:auto;font-family:var(--f-mono);font-size:9.5px;letter-spacing:.08em;
+  padding:2px 8px;border-radius:9px;background:var(--surface-2);color:var(--muted);white-space:nowrap;}
+.srv-pill.up{background:var(--good-wash);color:var(--good);}
+.local-b{padding:0 16px 16px;display:flex;flex-direction:column;gap:12px;}
+.local-b p{margin:0;font-size:13px;color:var(--ink-soft);line-height:1.55;}
+.local-b h4{margin:4px 0 0;font-family:var(--f-mono);font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--muted);font-weight:400;}
+.cmd{position:relative;background:var(--surface-2);border:1px solid var(--line-soft);
+     border-radius:var(--r);}
+.cmd pre{margin:0;padding:11px 60px 11px 13px;overflow-x:auto;font-family:var(--f-mono);
+         font-size:12.5px;line-height:1.7;color:var(--ink);}
+.cmd button{position:absolute;top:7px;right:7px;font-family:var(--f-mono);font-size:10px;
+  letter-spacing:.08em;padding:4px 9px;border:1px solid var(--line);border-radius:2px;
+  background:var(--surface);color:var(--muted);cursor:pointer;}
+.cmd button:hover{border-color:var(--accent);color:var(--accent);}
 .shots{display:flex;gap:7px;overflow-x:auto;padding:14px 16px;}
 /* flex-элемент здесь ссылка, а не картинка: без flex:none на ней ряд ужимается.
    aspect-ratio держит место до загрузки, иначе миниатюры схлопываются в полоски. */
@@ -248,17 +277,51 @@ footer p{margin:0 0 8px;}
 
   <!-- ══ ЗАКЛАДКА ══════════════════════════════════════════════════ -->
   <section class="card">
-    <div class="card-h">Заполнять автоматически — без установки</div>
+    <div class="card-h">Заполнять автоматически <span>ставить ничего не нужно</span></div>
     <div class="bm">
-      <p>Перетащи эту кнопку на панель закладок браузера
-        <span class="tag">Ctrl+Shift+B — показать панель</span></p>
-      <p><a class="bm-btn" id="bm-link" href="#" draggable="true">Лот → калькулятор</a></p>
-      <p>Дальше: открываешь лот на Copart, жмёшь закладку — калькулятор
-        откроется в новой вкладке уже заполненным, вместе с фотографиями.</p>
+      <ol class="steps">
+        <li>Покажи панель закладок, если скрыта — <b>Ctrl+Shift+B</b>
+            <span class="tag">на Mac ⌘+Shift+B</span></li>
+        <li>Перетащи на неё эту кнопку:<br>
+            <a class="bm-btn" id="bm-link" href="#" draggable="true"
+               style="margin-top:8px">Лот&nbsp;→&nbsp;калькулятор</a></li>
+        <li>Открой лот на Copart и нажми закладку — калькулятор откроется
+            в новой вкладке заполненным, вместе с фотографиями.</li>
+      </ol>
       <p class="bm-why">Скрипт выполняется внутри страницы Copart, поэтому данные отдаются
         без помех: для их защиты это обычный клик обычного посетителя. Сама по себе
-        эта страница до Copart достучаться не может — он режет любые запросы со стороны.</p>
+        эта страница до Copart достучаться не может — он режет любые запросы со стороны.
+        Считается всё в твоём браузере, никуда ничего не уходит.</p>
     </div>
+
+    <details class="local">
+      <summary>Локальный сервер — по желанию, для расчёта не нужен
+        <span class="srv-pill" id="srv-pill">не запущен</span></summary>
+      <div class="local-b">
+        <p>Добавляет две вещи: складывает фото и данные лотов на диск
+          (<code>lots/&lt;номер&gt;/</code>) и сам подтягивает курс НБУ. Ссылку тогда
+          можно вставлять прямо в поле <b>Лот</b> вверху, без закладки.</p>
+
+        <h4>Windows — один раз</h4>
+        <div class="cmd"><button type="button" data-copy>копировать</button><pre>git clone https://github.com/artemovdp/car-customs
+cd car-customs
+start.bat</pre></div>
+        <p>Дальше запуск — двойной клик по <code>start.bat</code>. Первый раз он сам
+          поставит зависимости, около 150 МБ.</p>
+
+        <h4>macOS и Linux</h4>
+        <div class="cmd"><button type="button" data-copy>копировать</button><pre>git clone https://github.com/artemovdp/car-customs
+cd car-customs
+pip install -r requirements.txt
+python -m playwright install chromium
+python serve.py</pre></div>
+
+        <p>Потом открой <a href="http://localhost:8731">http://localhost:8731</a> —
+          это та же страница, но с загрузкой лотов и курсом.
+          Исходники: <a href="https://github.com/artemovdp/car-customs"
+          target="_blank" rel="noopener">github.com/artemovdp/car-customs</a></p>
+      </div>
+    </details>
   </section>
 
   <!-- ══ СЦЕНАРИИ ══════════════════════════════════════════════════ -->
@@ -617,6 +680,8 @@ async function loadRates(){
     $("usd").value = j.rates.usd.rate;
     $("eur").value = j.rates.eur.rate;
     el.textContent = "НБУ на " + j.rates.usd.date;
+    $("srv-pill").textContent = "работает";
+    $("srv-pill").classList.add("up");
     render();
   }catch(e){
     el.textContent = "курс введи руками";
@@ -635,12 +700,11 @@ function goStandalone(){
   if (!$("lot-view").hidden) return;
   $("lot-note").className = "note";
   $("lot-note").innerHTML =
-    "Вставлять ссылку сюда умеет только локальная версия — эта страница до " +
-    "Copart не достучится, он режет запросы со стороны.<br>" +
-    "Проще всего — <b>закладка ниже</b>: жмёшь её прямо на лоте, и всё " +
-    "заполняется само. Кнопка справа передаёт ссылку на " +
-    "<a href=\"http://localhost:8731\">localhost:8731</a>, если запущен " +
-    "<code>start.bat</code>.";
+    "<b>Ставить ничего не нужно.</b> Возьми закладку ниже — она заполнит всё " +
+    "сама прямо со страницы лота.<br>" +
+    "Поле выше работает только с локальным сервером: эта страница до Copart " +
+    "не достучится, он режет запросы со стороны. Кнопка справа передаст " +
+    "ссылку на <a href=\"http://localhost:8731\">localhost:8731</a>, если он запущен.";
 }
 
 /* ─── старт ───────────────────────────────────────────────────────── */
@@ -659,6 +723,17 @@ $("cur-tabs").addEventListener("click", e => {
   CUR = b.dataset.c;
   [...$("cur-tabs").children].forEach(x => x.setAttribute("aria-pressed", x===b));
   render();
+});
+
+/* кнопки «копировать» у команд запуска */
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-copy]");
+  if (!b) return;
+  const code = b.parentElement.querySelector("pre").textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    b.textContent = "скопировано";
+    setTimeout(() => { b.textContent = "копировать"; }, 1600);
+  }).catch(() => { b.textContent = "выдели вручную"; });
 });
 
 const T = $("theme");
