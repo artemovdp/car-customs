@@ -161,6 +161,23 @@ details.local > summary:hover{color:var(--accent);}
 .warn-note b{color:var(--signal);}
 .sale-note{margin:-3px 0 0;font-size:12px;color:var(--muted);line-height:1.5;}
 .sale-note a{display:inline-block;margin-top:6px;font-weight:600;font-size:12.5px;}
+
+/* ─── БАЗА ЦЕН ─────────────────────────────────────────────────────── */
+.mkt{border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2);
+     padding:12px;display:flex;flex-direction:column;gap:7px;}
+.mkt-h{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
+       color:var(--muted);display:flex;justify-content:space-between;gap:8px;}
+.mkt-row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:12.5px;
+         color:var(--ink-soft);}
+.mkt-row b{font-family:var(--f-mono);font-variant-numeric:tabular-nums;color:var(--ink);
+           font-size:13.5px;white-space:nowrap;}
+.mkt-row.out{border-top:1px solid var(--line);padding-top:7px;margin-top:1px;}
+.mkt-row.out b{color:var(--accent);font-size:16px;font-weight:650;}
+.mkt-cut{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:12.5px;
+         color:var(--ink-soft);}
+.mkt-cut span{display:flex;align-items:center;gap:4px;font-family:var(--f-mono);color:var(--muted);}
+.mkt-cut input{width:56px;height:29px;padding:5px 7px;text-align:right;}
+.mkt .btn{height:31px;font-size:12.5px;}
 .cmd{position:relative;background:var(--surface-2);border:1px solid var(--line-soft);
      border-radius:var(--r);}
 .cmd pre{margin:0;padding:11px 60px 11px 13px;overflow-x:auto;font-family:var(--f-mono);
@@ -410,6 +427,17 @@ python serve.py</pre></div>
           <div class="field"><label for="sale">Цена продажи в Украине
               <span class="hint">поставь свою — отсюда считается прибыль</span></label>
             <input type="number" id="sale" step="500" value="36000"></div>
+          <div class="mkt" id="mkt" hidden>
+            <div class="mkt-h">Рынок Украины <span id="mkt-src"></span></div>
+            <div class="mkt-row"><span>Медиана целых</span><b id="mkt-med">—</b></div>
+            <div class="mkt-row"><span>Половина рынка в вилке</span><b id="mkt-iqr">—</b></div>
+            <div class="mkt-cut">
+              <label for="cut">Скидка за аварийную историю</label>
+              <span><input type="number" id="cut" step="1" min="0" max="90" value="30">%</span>
+            </div>
+            <div class="mkt-row out"><span>Реальная цена продажи</span><b id="mkt-sug">—</b></div>
+            <button class="btn" type="button" id="mkt-apply">Подставить в расчёт</button>
+          </div>
           <p class="sale-note" id="sale-note">Подставить эту цифру неоткуда: украинский
             рынок ниоткуда не выгружается. Смотри живые объявления и ставь руками.</p>
         </div>
@@ -600,22 +628,52 @@ function render(){
   try{ localStorage.setItem("rastam", JSON.stringify(st)); }catch(e){}
 }
 
-/* Ссылка на живые объявления AUTO.RIA по этой модели: берём марку и модель
-   из заголовка лота и даём запас в год по обе стороны от года выпуска. */
-function showMarketLink(L){
-  const note = $("sale-note");
+/* ─── база цен украинского рынка ──────────────────────────────────── */
+let MARKET = null, MKT_HIT = null;
+fetch("market.json").then(r => r.ok ? r.json() : null)
+  .then(j => { MARKET = j; if (LAST_LOT) showMarket(LAST_LOT); })
+  .catch(() => {});
+
+/* Ссылка на живые объявления и, если модель есть в базе, вилка цен по году.
+   База — это цены ЗАПРОСА за целые машины, поэтому из медианы вычитается
+   скидка за аварийную историю; процент задаёт человек. */
+let LAST_LOT = null;
+function showMarket(L){
+  LAST_LOT = L;
+  const note = $("sale-note"), box = $("mkt");
   const words = String(L.title||"").replace(/^(19|20)\d{2}\s*/, "").trim().split(/\s+/);
-  if (!words[0]){ return; }
-  const q = words.slice(0,2).join(" ");
-  const y = L.year;
+  if (!words[0]) return;
+  const q = words.slice(0,2).join(" "), y = L.year;
+
   let u = "https://auto.ria.com/uk/search/?text=" + encodeURIComponent(q);
   if (y) u += `&year%5B0%5D.gte=${y-1}&year%5B0%5D.lte=${y+1}`;
-  note.innerHTML =
-    "Подставить эту цифру неоткуда: украинский рынок ниоткуда не выгружается. " +
-    "Посмотри живые объявления и вычти скидку за аварийную историю — обычно " +
-    "<b>25–35%</b> для свежих премиальных.<br>" +
-    `<a href="${esc(safeURL(u))}" target="_blank" rel="noopener">` +
-    `${esc(q)} ${y ? esc(y-1) + "–" + esc(y+1) : ""} на AUTO.RIA ↗</a>`;
+  const link = `<a href="${esc(safeURL(u))}" target="_blank" rel="noopener">` +
+               `${esc(q)}${y ? " " + esc(y-1) + "–" + esc(y+1) : ""} на AUTO.RIA ↗</a>`;
+
+  const key = words.slice(0,2).join("/").toLowerCase();
+  const rec = MARKET && MARKET.models && MARKET.models[key];
+  MKT_HIT = (rec && y && rec.by_year[String(y)]) || null;
+
+  if (MKT_HIT){
+    box.hidden = false;
+    $("mkt-src").textContent = `${MKT_HIT.n} объявл. · ${y} · ${esc(rec.collected)}`;
+    $("mkt-med").textContent = "$" + fmt(MKT_HIT.median, 0);
+    $("mkt-iqr").textContent = "$" + fmt(MKT_HIT.p25, 0) + " – $" + fmt(MKT_HIT.p75, 0);
+    renderCut();
+    note.innerHTML = `Цены собраны с AUTO.RIA — это <b>запрошенные</b> цены целых машин, ` +
+      `не цены сделок: реальная продажа обычно на 5–10% ниже. ` +
+      (MKT_HIT.n < 15 ? `<b>Выборка мелкая (${MKT_HIT.n}) — проверь глазами.</b> ` : "") + link;
+  } else {
+    box.hidden = true;
+    note.innerHTML = "Этой модели нет в собранной базе — рынок посмотри сам и поставь " +
+      "цифру руками, вычтя скидку за аварийную историю (обычно <b>25–35%</b>).<br>" + link;
+  }
+}
+
+function renderCut(){
+  if (!MKT_HIT) return;
+  const cut = Math.min(90, Math.max(0, +$("cut").value || 0));
+  $("mkt-sug").textContent = "$" + fmt(Math.round(MKT_HIT.median * (1 - cut/100) / 100) * 100, 0);
 }
 
 /* ─── загрузка лота ───────────────────────────────────────────────── */
@@ -672,7 +730,7 @@ function fillLot(L){
      битого американца после ремонта в Украине она отношения не имеет. Вместо
      догадки даём ссылку на живые объявления. */
   if (L.est_retail) $("ref").value = Math.round(L.est_retail*.75/500)*500;
-  showMarketLink(L);
+  showMarket(L);
 
   $("lot-title").innerHTML =
     `<span>${esc(L.title || "лот " + L.lot)}</span>` +
@@ -753,6 +811,13 @@ try{
 }catch(e){}
 
 IDS.forEach(k=>{ $(k).addEventListener("input",render); $(k).addEventListener("change",render); });
+$("cut").addEventListener("input", renderCut);
+$("mkt-apply").addEventListener("click", () => {
+  if (!MKT_HIT) return;
+  const cut = Math.min(90, Math.max(0, +$("cut").value || 0));
+  $("sale").value = Math.round(MKT_HIT.median * (1 - cut/100) / 100) * 100;
+  render();
+});
 $("load-btn").addEventListener("click", loadLot);
 $("lot-url").addEventListener("keydown", e => { if (e.key === "Enter") loadLot(); });
 $("rates-btn").addEventListener("click", loadRates);
