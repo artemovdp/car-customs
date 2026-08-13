@@ -485,6 +485,17 @@ async function loadLot(){
   const url = $("lot-url").value.trim();
   const note = $("lot-note"), btn = $("load-btn");
   if (!url){ note.className="note err"; note.textContent="Вставь ссылку на лот."; return; }
+
+  /* опубликованная версия: передаём ссылку локальному серверу */
+  if (document.body.dataset.standalone){
+    window.open("http://localhost:8731/?lot=" + encodeURIComponent(url), "_blank", "noopener");
+    note.className = "note";
+    note.innerHTML = "Открываю <code>localhost:8731</code> с этой ссылкой — лот " +
+                     "загрузится там сам. Если вкладка не открылась, сначала " +
+                     "запусти <code>start.bat</code>.";
+    return;
+  }
+
   btn.disabled = true; btn.textContent = "Гружу…";
   note.className = "note";
   note.textContent = "Открываю Copart в настоящем браузере — 10–20 секунд.";
@@ -566,20 +577,21 @@ async function loadRates(){
   }finally{ btn.disabled = false; }
 }
 
-/* Без локального сервера остаётся ручной калькулятор: Copart и НБУ
-   доступны только через serve.py, статический хостинг до них не достаёт. */
+/* Без локального сервера Copart и НБУ недоступны — статический хостинг до них
+   не достаёт. Поле ссылки при этом остаётся рабочим: кнопка передаёт лот на
+   localhost, где сервер его и заберёт. */
 function goStandalone(){
   if (document.body.dataset.standalone) return;
   document.body.dataset.standalone = "1";
-  $("load-btn").disabled = true;
-  $("lot-url").disabled  = true;
-  $("rates-btn").disabled = true;
+  $("load-btn").textContent = "Открыть локально";
   $("lot-note").className = "note";
   $("lot-note").innerHTML =
-    "Загрузка лота и курс НБУ работают только с локальным сервером — Copart пускает " +
-    "лишь настоящий браузер, а статическая страница до него не достаёт.<br>" +
-    "Запусти у себя: <code>python serve.py</code> и открой " +
-    "<code>http://localhost:8731</code>. Здесь считай, подставляя цифры руками.";
+    "Это опубликованная версия — сама она до Copart не достучится: бот-защита " +
+    "пускает только настоящий браузер с твоей машины. Считать здесь можно " +
+    "полностью, подставляя цифры руками.<br>" +
+    "Чтобы лот подтягивался сам — запусти <code>start.bat</code> и работай на " +
+    "<a href=\"http://localhost:8731\">localhost:8731</a>. Кнопка перенесёт " +
+    "туда вставленную ссылку.";
 }
 
 /* ─── старт ───────────────────────────────────────────────────────── */
@@ -611,7 +623,14 @@ T.addEventListener("click", () => {
 });
 
 render();
-loadRates();
+
+/* ссылка может прийти параметром ?lot= — с опубликованной версии */
+const passed = new URLSearchParams(location.search).get("lot");
+if (passed) $("lot-url").value = passed;
+
+loadRates().then(() => {
+  if (passed && !document.body.dataset.standalone) loadLot();
+});
 </script>
 </body>
 </html>

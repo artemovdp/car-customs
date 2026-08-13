@@ -154,6 +154,52 @@ def normalize(text: str, lot: str, url: str, images: list):
     }
 
 # ── загрузка ─────────────────────────────────────────────────────────────
+CARD = "text=Lot number"          # признак того, что карточка лота отрисовалась
+HUMAN_WAIT = 150_000              # сколько ждём, пока человек пройдёт проверку
+
+def open_card(page, url: str, headless: bool) -> str:
+    """Открывает лот и дожидается карточки.
+
+    Akamai пускает не с первого раза: часто отдаёт пустой каркас без внятной
+    ошибки. Сначала пробуем перезагрузку — обычно этого хватает. Если окно
+    видимое, дальше просто ждём, пока проверку пройдёт человек: браузер уже
+    открыт у него на экране, а cookies осядут в профиль и следующий запуск
+    пройдёт молча.
+    """
+    page.goto(url, wait_until="domcontentloaded", timeout=60000)
+
+    for attempt in (1, 2):
+        try:
+            page.wait_for_selector(CARD, timeout=25000)
+            page.wait_for_timeout(1200)
+            return page.inner_text("body")
+        except Exception:
+            pass
+        if attempt == 1:
+            print("! карточка не появилась — перезагружаю страницу")
+            try:
+                page.reload(wait_until="domcontentloaded", timeout=60000)
+            except Exception:
+                pass
+
+    if headless:
+        raise BlockedError(
+            "Copart не отдал карточку лота — бот-защита Akamai.\n"
+            "Безголовый режим она режет всегда: убери --headless.")
+
+    print("! Copart просит проверку. Пройди её в открытом окне Chromium —\n"
+          "  жду до 2,5 минут, дальше продолжу сам.", flush=True)
+    try:
+        page.wait_for_selector(CARD, timeout=HUMAN_WAIT)
+        page.wait_for_timeout(1200)
+        return page.inner_text("body")
+    except Exception:
+        raise BlockedError(
+            "Copart не отдал карточку лота — бот-защита Akamai.\n"
+            "Проверку пройти не успели. Открой лот в обычном Chrome, убедись,\n"
+            "что он открывается, и запусти снова: python lot.py \"<ссылка>\"")
+
+
 def fetch(url: str, headless: bool = False):
     source, lot = parse_url(url)
     if source == "iaai":
@@ -171,28 +217,12 @@ def fetch(url: str, headless: bool = False):
         )
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         print(f"→ открываю лот {lot} …")
-        page.goto(url, wait_until="domcontentloaded", timeout=60000)
         try:
-            page.wait_for_selector("text=Lot number", timeout=25000)
-        except Exception:
-            print("! карточка лота не отрисовалась за 25 с — работаю с тем, что есть")
-        page.wait_for_timeout(1500)
-
-        text = page.inner_text("body")
-        (out / "page.txt").write_text(text, encoding="utf-8")
-
-        # Бот-защита не всегда рисует внятную ошибку: чаще отдаёт пустой каркас.
-        # Признак живой карточки — номер лота в тексте.
-        blocked = ("Access Denied" in text
-                   or "NOINDEX, NOFOLLOW" in page.content()[:2000]
-                   or "Lot number" not in text)
-        if blocked:
+            text = open_card(page, url, headless)
+        except BlockedError:
             ctx.close()
-            raise BlockedError(
-                "Copart не отдал карточку лота — сработала бот-защита Akamai.\n"
-                + ("Безголовый режим она режет всегда. Убери --headless.\n" if headless else
-                   "Открой лот руками в этом же окне, пройди проверку — cookies\n"
-                   "сохранятся в профиль, и следующий запуск пройдёт.\n"))
+            raise
+        (out / "page.txt").write_text(text, encoding="utf-8")
 
         # запросы к API — изнутри страницы, с её сессией
         def api(path):

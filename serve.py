@@ -10,16 +10,20 @@
 Всё крутится на твоём ноутбуке. Copart пускает только настоящий браузер,
 поэтому /api/lot поднимает окно Chromium на несколько секунд — так и задумано.
 """
-import json, sys, threading, urllib.parse, pathlib, traceback
+import json, sys, threading, urllib.parse, pathlib, subprocess
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 import requests
-from lot import fetch, BlockedError, LOTS_DIR
+from lot import parse_url, LOTS_DIR
 
 ROOT = pathlib.Path(__file__).parent
 PORT = 8731
+LOT_TIMEOUT = 330          # секунд на один лот: с запасом на ручную проверку Akamai
 
-# Playwright не любит несколько браузеров разом — пускаем строго по одному.
+# Синхронный Playwright нельзя гонять в потоке веб-сервера: после первого же
+# запуска процесс остаётся в нерабочем состоянии — статика ещё отдаётся, а
+# остальные обработчики встают намертво. Поэтому браузер живёт в отдельном
+# процессе (lot.py), а сервер только ждёт его и читает результат.
 _browser_lock = threading.Lock()
 
 NBU = "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?valcode={}&json"
@@ -33,6 +37,40 @@ def nbu_rates():
         row = r.json()[0]
         out[code] = {"rate": row["rate"], "date": row["exchangedate"]}
     return out
+
+
+def run_lot(url):
+    """Отдельным процессом дёргает lot.py. Возвращает (HTTP-код, тело)."""
+    try:
+        _, lot = parse_url(url)
+    except ValueError as e:
+        return 400, {"ok": False, "error": str(e)}
+
+    print(f"→ загружаю лот {lot}", flush=True)
+    try:
+        p = subprocess.run([sys.executable, str(ROOT / "lot.py"), url],
+                           cwd=str(ROOT), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=LOT_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return 504, {"ok": False,
+                     "error": f"Copart не ответил за {LOT_TIMEOUT} с. Проверь интернет "
+                              f"и попробуй ещё раз."}
+
+    if p.stdout:
+        print(p.stdout.rstrip(), flush=True)
+
+    if p.returncode != 0:
+        msg = (p.stderr or p.stdout or "").strip() or "lot.py завершился с ошибкой"
+        print(msg, flush=True)
+        return 503, {"ok": False, "error": msg}
+
+    f = LOTS_DIR / lot / "lot.json"
+    if not f.exists():
+        return 500, {"ok": False, "error": f"lot.py отработал, но {f.name} не появился"}
+
+    data = json.loads(f.read_text(encoding="utf-8"))
+    data["photo_dir"] = f"/lots/{lot}"
+    return 200, {"ok": True, "lot": data}
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -72,17 +110,7 @@ class Handler(SimpleHTTPRequestHandler):
                                  "error": "Уже загружаю другой лот — подожди пару секунд"})
                 return
             try:
-                print(f"→ загружаю лот: {url}", flush=True)
-                data, out = fetch(url)
-                data["photo_dir"] = f"/lots/{data['lot']}"
-                self._json(200, {"ok": True, "lot": data})
-            except BlockedError as e:
-                self._json(503, {"ok": False, "error": str(e)})
-            except ValueError as e:
-                self._json(400, {"ok": False, "error": str(e)})
-            except Exception as e:
-                traceback.print_exc()
-                self._json(500, {"ok": False, "error": f"{type(e).__name__}: {e}"})
+                self._json(*run_lot(url))
             finally:
                 _browser_lock.release()
             return
