@@ -456,7 +456,7 @@ python serve.py</pre></div>
               <span><input type="number" id="cut" step="1" min="0" max="90" value="30">%</span>
             </div>
             <div class="mkt-row out"><span>Реальная цена продажи</span><b id="mkt-sug">—</b></div>
-            <button class="btn" type="button" id="mkt-apply">Подставить в расчёт</button>
+            <button class="btn" type="button" id="mkt-apply">Вернуть расчётную</button>
           </div>
           <p class="sale-note" id="sale-note">Подставить эту цифру неоткуда: украинский
             рынок ниоткуда не выгружается. Смотри живые объявления и ставь руками.</p>
@@ -474,10 +474,12 @@ python serve.py</pre></div>
         <div class="rep-total">
           <span>Итого по смете</span><b id="rep-sum">—</b>
         </div>
-        <p class="rep-note">Сними галочку с того, что не пострадало. Цены — вилка по
-          украинскому рынку на премиальный кроссовер; уточняй у своего поставщика.
-          <b>Стапель, верхнюю панель и радар</b> оставляй включёнными, пока не увидел
-          машину живьём: по фото Copart силовую часть не видно.</p>
+        <p class="rep-note" id="rep-note">Позиции включаются по полям повреждений
+          из карточки лота. Сними галочку с того, что не пострадало, и поправь цены
+          под своего поставщика. <b>Стапель, верхнюю панель и радар</b> оставляй
+          включёнными, пока не увидел машину живьём: по фото Copart силовую часть
+          не видно. <b>Подушки</b> карточка не показывает вообще — ставь галочку сам,
+          если на фото видно, что они сработали.</p>
       </section>
     </div>
 
@@ -670,39 +672,80 @@ function render(){
    б/у и качественный аналог, верхняя — оригинал. Позиции, которые по фото
    Copart проверить нельзя, включены по умолчанию: занижать риск нельзя. */
 const REPAIR = [
-  ["Бампер передний, кожух",            250,  900, 1],
-  ["Усилитель бампера и абсорбер",      200,  400, 1],
-  ["Фара",                              500, 1800, 1],
-  ["Крыло переднее",                    150,  500, 1],
-  ["Капот — правка залома или замена",  200,  900, 1],
-  ["Решётка радиатора",                 150,  350, 1],
-  ["Подкрылок, мелочь, крепёж",         150,  300, 1],
-  ["Датчики, проводка, радар ACC",      250, 1500, 1],
-  ["Радиатор, конденсор",                 0,  700, 1],
-  ["Верхняя панель передка",              0,  600, 1],
-  ["Стапель — правка геометрии",          0,  600, 1],
-  ["Жестянка, работа",                  400,  800, 1],
-  ["Покраска",                          500, 1000, 1],
-  ["Развал, диагностика, сброс ошибок", 150,  250, 1],
+  // зона · название · дёшево · дорого
+  ["front", "Бампер передний, кожух",            250,  900],
+  ["front", "Усилитель бампера и абсорбер",      200,  400],
+  ["front", "Фара",                              500, 1800],
+  ["front", "Крыло переднее",                    150,  500],
+  ["front", "Капот — правка залома или замена",  200,  900],
+  ["front", "Решётка радиатора",                 150,  350],
+  ["front", "Радиатор, конденсор",                 0,  700],
+  ["front", "Верхняя панель передка",              0,  600],
+  ["rear",  "Бампер задний, кожух",              200,  800],
+  ["rear",  "Фонарь задний",                     150,  700],
+  ["rear",  "Дверь багажника",                   250,  900],
+  ["rear",  "Задняя панель, пол багажника",        0,  800],
+  ["side",  "Дверь",                             250,  900],
+  ["side",  "Крыло заднее, четверть",            300, 1200],
+  ["side",  "Порог",                             200,  700],
+  ["side",  "Зеркало",                           100,  450],
+  ["mech",  "Двигатель или КПП — риск",            0, 4000],
+  ["srs",   "Подушки и блок SRS",                800, 3500],
+  ["any",   "Подкрылок, мелочь, крепёж",         150,  300],
+  ["any",   "Датчики, проводка, радар ACC",      250, 1500],
+  ["any",   "Стапель — правка геометрии",          0,  600],
+  ["any",   "Жестянка, работа",                  400,  800],
+  ["any",   "Покраска",                          500, 1000],
+  ["any",   "Развал, диагностика, сброс ошибок", 150,  250],
 ];
+const MID = (lo, hi) => Math.round((lo + hi) / 2 / 50) * 50;
 
 function buildRepair(){
-  $("rep-rows").innerHTML = REPAIR.map(([name,lo,hi], i) =>
-    `<div class="rep-row" data-i="${i}">
-       <input type="checkbox" id="rc${i}" checked>
+  $("rep-rows").innerHTML = REPAIR.map(([zone,name,lo,hi], i) =>
+    `<div class="rep-row" data-zone="${zone}" data-i="${i}">
+       <input type="checkbox" id="rc${i}">
        <label for="rc${i}">${esc(name)}<span class="rng">${lo} – ${hi}</span></label>
-       <input type="number" id="rp${i}" step="50" value="${Math.round((lo+hi)/2/50)*50}">
+       <input type="number" id="rp${i}" step="50" value="${MID(lo,hi)}">
      </div>`).join("");
   $("rep-rows").addEventListener("input", sumRepair);
   $("rep-rows").addEventListener("change", sumRepair);
+  setZones(["front"], false);          // пока лот не загружен — обычный передний удар
+}
+
+/* Включает позиции нужных зон и прячет заведомо лишние, чтобы список
+   не растягивался на весь экран ради галочек, которые никто не поставит. */
+function setZones(zones, srs){
+  const on = new Set([...zones, "any"]);
+  REPAIR.forEach(([zone], i) => {
+    const row = $("rc"+i).closest(".rep-row");
+    const use = on.has(zone) || (zone === "srs" && srs) || (zone === "mech" && on.has("mech"));
+    row.hidden = !use && zone !== "srs" && zone !== "mech";
+    $("rc"+i).checked = use;
+  });
   sumRepair();
+}
+
+/* Зоны берём из полей повреждений Copart. Это грубо — карточка не говорит,
+   насколько глубоко, — но лучше, чем один набор позиций на все лоты. */
+function zonesFromDamage(L){
+  const t = [L.damage_primary, L.damage_secondary].filter(Boolean).join(" ").toLowerCase();
+  const z = new Set();
+  if (/front|undercarriage/.test(t))            z.add("front");
+  if (/rear|back/.test(t))                      z.add("rear");
+  if (/side|door|quarter/.test(t))              z.add("side");
+  if (/all over|rollover|roll over/.test(t))    ["front","rear","side"].forEach(x=>z.add(x));
+  if (/mechanical|engine|burn/.test(t))         z.add("mech");
+  if (!z.size)                                  z.add("front");
+  if (L.runs_drives === false)                  z.add("mech");
+  return [...z];
 }
 
 function sumRepair(){
   let total = 0;
   REPAIR.forEach((_, i) => {
-    const on = $("rc"+i).checked;
-    $("rp"+i).closest(".rep-row").classList.toggle("off", !on);
+    const row = $("rp"+i).closest(".rep-row");
+    const on  = $("rc"+i).checked && !row.hidden;
+    row.classList.toggle("off", !on);
     if (on) total += +$("rp"+i).value || 0;
   });
   $("rep-sum").textContent = "$" + fmt(total, 0);
@@ -711,7 +754,7 @@ function sumRepair(){
 }
 
 function presetRepair(which){
-  REPAIR.forEach(([, lo, hi], i) => { $("rp"+i).value = which === "min" ? lo : hi; });
+  REPAIR.forEach(([, , lo, hi], i) => { $("rp"+i).value = which === "min" ? lo : hi; });
   sumRepair();
 }
 
@@ -747,6 +790,7 @@ function showMarket(L){
     $("mkt-med").textContent = "$" + fmt(MKT_HIT.median, 0);
     $("mkt-iqr").textContent = "$" + fmt(MKT_HIT.p25, 0) + " – $" + fmt(MKT_HIT.p75, 0);
     renderCut();
+    applyCut();          // цена продажи проставляется сразу, править можно после
     note.innerHTML = `Цены собраны с AUTO.RIA — это <b>запрошенные</b> цены целых машин, ` +
       `не цены сделок: реальная продажа обычно на 5–10% ниже. ` +
       (MKT_HIT.n < 15 ? `<b>Выборка мелкая (${MKT_HIT.n}) — проверь глазами.</b> ` : "") + link;
@@ -757,10 +801,18 @@ function showMarket(L){
   }
 }
 
+const cutValue = () => Math.min(90, Math.max(0, +$("cut").value || 0));
+const cutPrice = () => Math.round(MKT_HIT.median * (1 - cutValue()/100) / 100) * 100;
+
 function renderCut(){
   if (!MKT_HIT) return;
-  const cut = Math.min(90, Math.max(0, +$("cut").value || 0));
-  $("mkt-sug").textContent = "$" + fmt(Math.round(MKT_HIT.median * (1 - cut/100) / 100) * 100, 0);
+  $("mkt-sug").textContent = "$" + fmt(cutPrice(), 0);
+}
+
+function applyCut(){
+  if (!MKT_HIT) return;
+  $("sale").value = cutPrice();
+  render();
 }
 
 /* ─── загрузка лота ───────────────────────────────────────────────── */
@@ -792,8 +844,12 @@ async function loadLot(){
     note.className = "note";
     note.textContent = `Готово. Фото: ${j.lot.photos.length} шт. в lots/${j.lot.lot}/`;
   }catch(e){
-    note.className = "note err";
-    note.textContent = "Не вышло: " + e.message;
+    if (e instanceof TypeError){        // до сервера не достучались вовсе
+      goStandalone();
+    } else {
+      note.className = "note err";
+      note.textContent = "Не вышло: " + e.message;
+    }
   }finally{
     btn.disabled = false; btn.textContent = "Загрузить";
   }
@@ -817,6 +873,7 @@ function fillLot(L){
      битого американца после ремонта в Украине она отношения не имеет. Вместо
      догадки даём ссылку на живые объявления. */
   if (L.est_retail) $("ref").value = Math.round(L.est_retail*.75/500)*500;
+  setZones(zonesFromDamage(L), false);   // подушки по карточке не определить
   showMarket(L);
 
   $("lot-title").innerHTML =
@@ -901,13 +958,8 @@ IDS.forEach(k=>{ $(k).addEventListener("input",render); $(k).addEventListener("c
 $("rep-presets").addEventListener("click", e => {
   const b = e.target.closest("button"); if (b) presetRepair(b.dataset.p);
 });
-$("cut").addEventListener("input", renderCut);
-$("mkt-apply").addEventListener("click", () => {
-  if (!MKT_HIT) return;
-  const cut = Math.min(90, Math.max(0, +$("cut").value || 0));
-  $("sale").value = Math.round(MKT_HIT.median * (1 - cut/100) / 100) * 100;
-  render();
-});
+$("cut").addEventListener("input", () => { renderCut(); applyCut(); });
+$("mkt-apply").addEventListener("click", applyCut);
 $("load-btn").addEventListener("click", loadLot);
 $("lot-url").addEventListener("keydown", e => { if (e.key === "Enter") loadLot(); });
 $("rates-btn").addEventListener("click", loadRates);
@@ -986,9 +1038,10 @@ if (fromHash){
 const passed = new URLSearchParams(location.search).get("lot");
 if (passed) $("lot-url").value = passed;
 
-loadRates().then(() => {
-  if (passed && !fromHash && !document.body.dataset.standalone) loadLot();
-});
+/* Курс и лот грузятся независимо: раньше лот ждал ответа по курсу через .then()
+   и не начинался вовсе, если НБУ или сервер задумались. */
+loadRates();
+if (passed && !fromHash) loadLot();
 </script>
 </body>
 </html>

@@ -10,7 +10,7 @@
 Всё крутится на твоём ноутбуке. Copart пускает только настоящий браузер,
 поэтому /api/lot поднимает окно Chromium на несколько секунд — так и задумано.
 """
-import json, sys, threading, urllib.parse, pathlib, subprocess
+import json, sys, threading, time, urllib.parse, pathlib, subprocess
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 import requests
@@ -19,6 +19,21 @@ from lot import parse_url, LOTS_DIR
 ROOT = pathlib.Path(__file__).parent
 PORT = 8731
 LOT_TIMEOUT = 330          # секунд на один лот: с запасом на ручную проверку Akamai
+LOG  = ROOT / "server.log"
+
+
+def log(msg):
+    """Пишет в файл, а не в консоль.
+
+    Консоль Windows с включённым QuickEdit блокирует пишущий процесс, стоит
+    случайно выделить в окне текст. Сервер тогда замирал ровно на обработчиках
+    /api/ — единственных, что писали в stderr, — а статика продолжала отдаваться.
+    """
+    try:
+        with open(LOG, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%H:%M:%S')}  {msg}\n")
+    except Exception:
+        pass
 
 # Синхронный Playwright нельзя гонять в потоке веб-сервера: после первого же
 # запуска процесс остаётся в нерабочем состоянии — статика ещё отдаётся, а
@@ -46,7 +61,7 @@ def run_lot(url):
     except ValueError as e:
         return 400, {"ok": False, "error": str(e)}
 
-    print(f"→ загружаю лот {lot}", flush=True)
+    log(f"загружаю лот {lot}")
     try:
         p = subprocess.run([sys.executable, str(ROOT / "lot.py"), url],
                            cwd=str(ROOT), capture_output=True, text=True,
@@ -57,11 +72,11 @@ def run_lot(url):
                               f"и попробуй ещё раз."}
 
     if p.stdout:
-        print(p.stdout.rstrip(), flush=True)
+        log(p.stdout.rstrip())
 
     if p.returncode != 0:
         msg = (p.stderr or p.stdout or "").strip() or "lot.py завершился с ошибкой"
-        print(msg, flush=True)
+        log(msg)
         return 503, {"ok": False, "error": msg}
 
     f = LOTS_DIR / lot / "lot.json"
@@ -79,7 +94,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         if "/api/" in (self.path or ""):
-            sys.stderr.write("  %s\n" % (fmt % args))
+            log(fmt % args)
 
     def _json(self, code, payload):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")

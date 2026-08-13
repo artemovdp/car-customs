@@ -6,3 +6,5 @@ lots/
 
 __pycache__/
 *.pyc
+
+server.log
