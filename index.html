@@ -157,6 +157,8 @@ details.local > summary:hover{color:var(--accent);}
 .local-b p{margin:0;font-size:13px;color:var(--ink-soft);line-height:1.55;}
 .local-b h4{margin:4px 0 0;font-family:var(--f-mono);font-size:10px;letter-spacing:.14em;
   text-transform:uppercase;color:var(--muted);font-weight:400;}
+.warn-note{border-left:2px solid var(--signal);padding-left:12px;color:var(--muted) !important;}
+.warn-note b{color:var(--signal);}
 .cmd{position:relative;background:var(--surface-2);border:1px solid var(--line-soft);
      border-radius:var(--r);}
 .cmd pre{margin:0;padding:11px 60px 11px 13px;overflow-x:auto;font-family:var(--f-mono);
@@ -289,25 +291,35 @@ footer p{margin:0 0 8px;}
             в новой вкладке заполненным, вместе с фотографиями.</li>
       </ol>
       <p class="bm-why">Скрипт выполняется внутри страницы Copart, поэтому данные отдаются
-        без помех: для их защиты это обычный клик обычного посетителя. Сама по себе
-        эта страница до Copart достучаться не может — он режет любые запросы со стороны.
-        Считается всё в твоём браузере, никуда ничего не уходит.</p>
+        без помех: для их защиты это обычный клик обычного посетителя — ни окон,
+        ни проверок «вы человек?». Сама по себе эта страница до Copart достучаться
+        не может, он режет любые запросы со стороны. Считается всё в твоём браузере,
+        никуда ничего не уходит.</p>
     </div>
 
     <details class="local">
-      <summary>Локальный сервер — по желанию, для расчёта не нужен
+      <summary>Локальный сервер — не нужен, если пользуешься закладкой
         <span class="srv-pill" id="srv-pill">не запущен</span></summary>
       <div class="local-b">
-        <p>Добавляет две вещи: складывает фото и данные лотов на диск
-          (<code>lots/&lt;номер&gt;/</code>) и сам подтягивает курс НБУ. Ссылку тогда
-          можно вставлять прямо в поле <b>Лот</b> вверху, без закладки.</p>
+        <p>Нужен ровно для двух вещей: складывать фото и данные лотов на диск
+          (<code>lots/&lt;номер&gt;/</code>) и подтягивать курс НБУ автоматически.
+          На расчёт не влияет.</p>
+        <p class="warn-note"><b>Учти цену.</b> С сервером ссылку вставляют в поле
+          <b>Лот</b> вверху, и тогда он сам идёт на Copart — на 10–20 секунд
+          открывается окно Chromium, и время от времени Copart просит пройти проверку
+          «вы человек?». У закладки этого нет: она работает в уже открытой тобой
+          вкладке. Если проверки раздражают — оставайся на закладке.</p>
 
-        <h4>Windows — один раз</h4>
+        <h4>Windows — поставить один раз</h4>
         <div class="cmd"><button type="button" data-copy>копировать</button><pre>git clone https://github.com/artemovdp/car-customs
 cd car-customs
 start.bat</pre></div>
-        <p>Дальше запуск — двойной клик по <code>start.bat</code>. Первый раз он сам
-          поставит зависимости, около 150 МБ.</p>
+
+        <h4>Запускать после каждой перезагрузки</h4>
+        <p>Сервер живёт до выключения компьютера — сам он не поднимается.
+          Двойной клик по <code>start.bat</code>, или командой:</p>
+        <div class="cmd"><button type="button" data-copy>копировать</button><pre>cd car-customs
+python serve.py</pre></div>
 
         <h4>macOS и Linux</h4>
         <div class="cmd"><button type="button" data-copy>копировать</button><pre>git clone https://github.com/artemovdp/car-customs
@@ -317,7 +329,8 @@ python -m playwright install chromium
 python serve.py</pre></div>
 
         <p>Потом открой <a href="http://localhost:8731">http://localhost:8731</a> —
-          это та же страница, но с загрузкой лотов и курсом.
+          это та же страница, но с загрузкой лотов и курсом. Индикатор справа от
+          заголовка показывает, поднят сервер или нет.
           Исходники: <a href="https://github.com/artemovdp/car-customs"
           target="_blank" rel="noopener">github.com/artemovdp/car-customs</a></p>
       </div>
