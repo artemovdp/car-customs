@@ -178,6 +178,25 @@ details.local > summary:hover{color:var(--accent);}
 .mkt-cut span{display:flex;align-items:center;gap:4px;font-family:var(--f-mono);color:var(--muted);}
 .mkt-cut input{width:56px;height:29px;padding:5px 7px;text-align:right;}
 .mkt .btn{height:31px;font-size:12.5px;}
+
+/* ─── СМЕТА РЕМОНТА ────────────────────────────────────────────────── */
+.rep{padding:6px 0;}
+.rep-row{display:grid;grid-template-columns:15px 1fr 84px;align-items:center;gap:9px;
+         padding:5px 16px;font-size:13px;color:var(--ink-soft);}
+.rep-row:hover{background:var(--surface-2);}
+.rep-row input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;margin:0;}
+.rep-row label{cursor:pointer;line-height:1.3;}
+.rep-row .rng{display:block;font-family:var(--f-mono);font-size:10px;color:var(--muted);margin-top:1px;}
+.rep-row input[type=number]{height:29px;padding:5px 8px;text-align:right;font-size:13px;}
+.rep-row.off label,.rep-row.off .rng{opacity:.4;}
+.rep-row.off input[type=number]{opacity:.4;}
+.rep-total{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+           padding:11px 16px;border-top:1px solid var(--line-soft);background:var(--accent-wash);}
+.rep-total span{font-size:13.5px;font-weight:600;color:var(--accent);}
+.rep-total b{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:17px;
+             font-weight:700;color:var(--accent);}
+.rep-note{margin:0;padding:12px 16px 14px;font-size:12px;color:var(--muted);line-height:1.55;}
+.rep-note b{color:var(--ink-soft);}
 .cmd{position:relative;background:var(--surface-2);border:1px solid var(--line-soft);
      border-radius:var(--r);}
 .cmd pre{margin:0;padding:11px 60px 11px 13px;overflow-x:auto;font-family:var(--f-mono);
@@ -422,7 +441,8 @@ python serve.py</pre></div>
             <input type="number" id="broker" step="50" value="500"></div>
           <div class="field"><label for="agent">Посредник<span class="in-base out-base">вне базы</span></label>
             <input type="number" id="agent" step="50" value="500"></div>
-          <div class="field"><label for="repair">Ремонт в Украине<span class="in-base out-base">вне базы</span></label>
+          <div class="field"><label for="repair">Ремонт в Украине<span class="in-base out-base">вне базы</span>
+              <span class="hint">складывается из позиций ниже</span></label>
             <input type="number" id="repair" step="100" value="4750"></div>
           <div class="field"><label for="sale">Цена продажи в Украине
               <span class="hint">поставь свою — отсюда считается прибыль</span></label>
@@ -441,6 +461,23 @@ python serve.py</pre></div>
           <p class="sale-note" id="sale-note">Подставить эту цифру неоткуда: украинский
             рынок ниоткуда не выгружается. Смотри живые объявления и ставь руками.</p>
         </div>
+      </section>
+
+      <section class="card">
+        <div class="card-h">Смета ремонта
+          <span class="cur-tabs" id="rep-presets">
+            <button type="button" data-p="min">дёшево</button>
+            <button type="button" data-p="max">дорого</button>
+          </span>
+        </div>
+        <div class="rep" id="rep-rows"></div>
+        <div class="rep-total">
+          <span>Итого по смете</span><b id="rep-sum">—</b>
+        </div>
+        <p class="rep-note">Сними галочку с того, что не пострадало. Цены — вилка по
+          украинскому рынку на премиальный кроссовер; уточняй у своего поставщика.
+          <b>Стапель, верхнюю панель и радар</b> оставляй включёнными, пока не увидел
+          машину живьём: по фото Copart силовую часть не видно.</p>
       </section>
     </div>
 
@@ -628,6 +665,56 @@ function render(){
   try{ localStorage.setItem("rastam", JSON.stringify(st)); }catch(e){}
 }
 
+/* ─── смета ремонта ───────────────────────────────────────────────── */
+/* Вилки — по украинскому рынку на премиальный кроссовер: нижняя граница это
+   б/у и качественный аналог, верхняя — оригинал. Позиции, которые по фото
+   Copart проверить нельзя, включены по умолчанию: занижать риск нельзя. */
+const REPAIR = [
+  ["Бампер передний, кожух",            250,  900, 1],
+  ["Усилитель бампера и абсорбер",      200,  400, 1],
+  ["Фара",                              500, 1800, 1],
+  ["Крыло переднее",                    150,  500, 1],
+  ["Капот — правка залома или замена",  200,  900, 1],
+  ["Решётка радиатора",                 150,  350, 1],
+  ["Подкрылок, мелочь, крепёж",         150,  300, 1],
+  ["Датчики, проводка, радар ACC",      250, 1500, 1],
+  ["Радиатор, конденсор",                 0,  700, 1],
+  ["Верхняя панель передка",              0,  600, 1],
+  ["Стапель — правка геометрии",          0,  600, 1],
+  ["Жестянка, работа",                  400,  800, 1],
+  ["Покраска",                          500, 1000, 1],
+  ["Развал, диагностика, сброс ошибок", 150,  250, 1],
+];
+
+function buildRepair(){
+  $("rep-rows").innerHTML = REPAIR.map(([name,lo,hi], i) =>
+    `<div class="rep-row" data-i="${i}">
+       <input type="checkbox" id="rc${i}" checked>
+       <label for="rc${i}">${esc(name)}<span class="rng">${lo} – ${hi}</span></label>
+       <input type="number" id="rp${i}" step="50" value="${Math.round((lo+hi)/2/50)*50}">
+     </div>`).join("");
+  $("rep-rows").addEventListener("input", sumRepair);
+  $("rep-rows").addEventListener("change", sumRepair);
+  sumRepair();
+}
+
+function sumRepair(){
+  let total = 0;
+  REPAIR.forEach((_, i) => {
+    const on = $("rc"+i).checked;
+    $("rp"+i).closest(".rep-row").classList.toggle("off", !on);
+    if (on) total += +$("rp"+i).value || 0;
+  });
+  $("rep-sum").textContent = "$" + fmt(total, 0);
+  $("repair").value = total;
+  render();
+}
+
+function presetRepair(which){
+  REPAIR.forEach(([, lo, hi], i) => { $("rp"+i).value = which === "min" ? lo : hi; });
+  sumRepair();
+}
+
 /* ─── база цен украинского рынка ──────────────────────────────────── */
 let MARKET = null, MKT_HIT = null;
 fetch("market.json").then(r => r.ok ? r.json() : null)
@@ -811,6 +898,9 @@ try{
 }catch(e){}
 
 IDS.forEach(k=>{ $(k).addEventListener("input",render); $(k).addEventListener("change",render); });
+$("rep-presets").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (b) presetRepair(b.dataset.p);
+});
 $("cut").addEventListener("input", renderCut);
 $("mkt-apply").addEventListener("click", () => {
   if (!MKT_HIT) return;
@@ -878,6 +968,7 @@ function readHash(){
   }catch(e){ return null; }
 }
 
+buildRepair();
 render();
 buildBookmarklet();
 
