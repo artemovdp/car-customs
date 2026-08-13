@@ -1,0 +1,8 @@
+# скачанные лоты и фото — своё у каждого
+lots/
+
+# профиль Chromium с cookies Akamai
+.browser-profile/
+
+__pycache__/
+*.pyc

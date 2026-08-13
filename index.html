@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Растаможка США → Украина</title>
+<meta name="description" content="Считает полную стоимость пригона авто из США: тянет лот с Copart, курс НБУ и показывает три сценария ставки.">
+<style>
+/* ─── ТОКЕНЫ: светлая тема (полная палитра на голом :root) ─────────── */
+:root{
+  --paper:#eef1ee; --surface:#fff; --surface-2:#e4e9e5;
+  --ink:#10171a; --ink-soft:#3c4a4c; --muted:#647573;
+  --line:#ccd5d1; --line-soft:#dee4e0;
+  --accent:#0b6a68; --accent-ink:#fff; --accent-wash:#dbeceb;
+  --signal:#b8400b; --signal-wash:#fbe6da;
+  --good:#15703c; --good-wash:#ddefe2;
+  --shadow:0 1px 2px rgba(16,23,26,.06), 0 8px 24px -12px rgba(16,23,26,.18);
+  --focus:#0b6a68;
+  --f-sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,"Helvetica Neue",Arial,sans-serif;
+  --f-mono:ui-monospace,"Cascadia Mono","Segoe UI Mono","SF Mono",Consolas,"Liberation Mono",monospace;
+  --r:4px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#0d1211; --surface:#161d1c; --surface-2:#1f2827;
+    --ink:#e7edea; --ink-soft:#b8c4c1; --muted:#7f918d;
+    --line:#2b3634; --line-soft:#222c2b;
+    --accent:#34c9bf; --accent-ink:#06201f; --accent-wash:#12302e;
+    --signal:#f5883f; --signal-wash:#361d10;
+    --good:#46c97a; --good-wash:#102c1c;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+    --focus:#34c9bf;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0d1211; --surface:#161d1c; --surface-2:#1f2827;
+  --ink:#e7edea; --ink-soft:#b8c4c1; --muted:#7f918d;
+  --line:#2b3634; --line-soft:#222c2b;
+  --accent:#34c9bf; --accent-ink:#06201f; --accent-wash:#12302e;
+  --signal:#f5883f; --signal-wash:#361d10;
+  --good:#46c97a; --good-wash:#102c1c;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+  --focus:#34c9bf;
+}
+
+*,*::before,*::after{box-sizing:border-box;}
+[hidden]{display:none !important;}
+html{-webkit-text-size-adjust:100%;}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--f-sans);
+     font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;}
+:where(a){color:var(--accent);}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:2px;}
+.wrap{max-width:1280px;margin:0 auto;padding:0 20px 72px;}
+
+/* ─── ШАПКА ────────────────────────────────────────────────────────── */
+header{border-bottom:1px solid var(--line);background:var(--surface);margin-bottom:22px;}
+.head-in{max-width:1280px;margin:0 auto;padding:20px;display:flex;flex-wrap:wrap;
+         align-items:flex-end;gap:14px 26px;}
+.brand{margin-right:auto;}
+.eyebrow{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.16em;
+         text-transform:uppercase;color:var(--muted);margin:0 0 6px;}
+h1{font-size:clamp(20px,3.2vw,27px);line-height:1.12;margin:0;letter-spacing:-.022em;
+   font-weight:650;text-wrap:balance;}
+h1 .law{display:block;font-size:12.5px;font-weight:400;color:var(--muted);
+        letter-spacing:0;margin-top:6px;}
+.rate-strip{display:flex;gap:9px;flex-wrap:wrap;align-items:flex-end;}
+.rate{display:flex;flex-direction:column;gap:3px;}
+.rate label{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.13em;
+            text-transform:uppercase;color:var(--muted);}
+.rate input{width:92px;}
+.rate-date{font-family:var(--f-mono);font-size:10px;color:var(--muted);
+           align-self:flex-end;padding-bottom:10px;white-space:nowrap;}
+
+/* ─── КНОПКИ И ПОЛЯ ────────────────────────────────────────────────── */
+input[type=number],input[type=text],input[type=url],select{
+  width:100%;font:inherit;font-family:var(--f-mono);font-size:14px;
+  font-variant-numeric:tabular-nums;padding:8px 10px;height:35px;
+  background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r);}
+select{font-family:var(--f-sans);}
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+input[type=number]{-moz-appearance:textfield;}
+input:hover,select:hover{border-color:var(--muted);}
+.btn{border:1px solid var(--line);background:var(--surface);color:var(--ink-soft);
+     border-radius:var(--r);padding:0 13px;cursor:pointer;font:inherit;font-size:13.5px;
+     height:35px;white-space:nowrap;}
+.btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent);}
+.btn:disabled{opacity:.5;cursor:progress;}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600;}
+.btn.primary:hover:not(:disabled){filter:brightness(1.08);color:var(--accent-ink);}
+
+/* ─── КАРТОЧКИ ─────────────────────────────────────────────────────── */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+      box-shadow:var(--shadow);}
+.card + .card{margin-top:18px;}
+.card-h{padding:12px 16px;border-bottom:1px solid var(--line-soft);font-family:var(--f-mono);
+        font-size:10.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);
+        display:flex;justify-content:space-between;align-items:center;gap:10px;}
+.card-b{padding:16px;display:flex;flex-direction:column;gap:13px;}
+
+.field{display:grid;grid-template-columns:1fr 112px;align-items:center;gap:12px;}
+.field > label{font-size:13.5px;color:var(--ink-soft);line-height:1.3;}
+.field .hint{display:block;font-size:11.5px;color:var(--muted);margin-top:2px;}
+.field.wide{grid-template-columns:1fr;gap:6px;}
+.in-base{display:inline-block;vertical-align:middle;margin-left:6px;font-family:var(--f-mono);
+         font-size:9px;letter-spacing:.08em;padding:1.5px 5px;border-radius:2px;white-space:nowrap;
+         background:var(--accent-wash);color:var(--accent);}
+.out-base{background:var(--surface-2);color:var(--muted);}
+.check{display:flex;align-items:flex-start;gap:9px;font-size:13px;color:var(--ink-soft);
+       line-height:1.4;cursor:pointer;}
+.check input{margin:2px 0 0;accent-color:var(--accent);width:15px;height:15px;flex:none;}
+
+/* ─── ЗАГРУЗКА ЛОТА ────────────────────────────────────────────────── */
+.loader{display:flex;gap:10px;padding:16px;flex-wrap:wrap;}
+.loader input{flex:1 1 340px;font-family:var(--f-sans);font-size:13.5px;}
+.note{padding:0 16px 14px;font-size:12.5px;color:var(--muted);line-height:1.5;}
+.note.err{color:var(--signal);white-space:pre-line;}
+
+.lot-strip{display:flex;flex-wrap:wrap;gap:0;border-top:1px solid var(--line-soft);}
+.lot-f{padding:11px 16px;border-right:1px solid var(--line-soft);
+       border-bottom:1px solid var(--line-soft);flex:1 1 155px;min-width:0;}
+.lot-f .k{font-family:var(--f-mono);font-size:9px;letter-spacing:.13em;text-transform:uppercase;
+          color:var(--muted);margin-bottom:4px;}
+.lot-f .v{font-size:13.5px;font-weight:550;overflow-wrap:anywhere;}
+.lot-f .v.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums;}
+.lot-f .v.ok{color:var(--good);}
+.lot-f .v.warn{color:var(--signal);}
+.lot-title{padding:14px 16px 12px;font-size:17px;font-weight:650;letter-spacing:-.015em;
+           display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;}
+.lot-title a{font-family:var(--f-mono);font-size:11.5px;font-weight:400;}
+.shots{display:flex;gap:7px;overflow-x:auto;padding:14px 16px;}
+.shots img{height:78px;width:auto;border-radius:2px;border:1px solid var(--line);
+           flex:none;cursor:zoom-in;background:var(--surface-2);}
+
+/* ─── ТАБЛИЦА СЦЕНАРИЕВ ────────────────────────────────────────────── */
+.scroll{overflow-x:auto;}
+table.sc{width:100%;border-collapse:collapse;font-size:13.5px;min-width:620px;}
+table.sc th,table.sc td{padding:8px 14px;border-bottom:1px solid var(--line-soft);}
+table.sc thead th{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.13em;
+                  text-transform:uppercase;color:var(--muted);font-weight:400;
+                  text-align:right;vertical-align:bottom;padding-top:11px;}
+table.sc thead th:first-child{text-align:left;}
+table.sc thead th b{display:block;font-family:var(--f-sans);font-size:13px;letter-spacing:0;
+                    text-transform:none;color:var(--ink);font-weight:600;margin-top:3px;}
+table.sc td{color:var(--ink-soft);}
+table.sc td.n{text-align:right;font-family:var(--f-mono);font-variant-numeric:tabular-nums;
+              white-space:nowrap;color:var(--ink);}
+table.sc tr.sub td{background:var(--surface-2);font-weight:600;color:var(--ink);}
+table.sc tr.grand td{background:var(--accent-wash);font-weight:700;font-size:14.5px;color:var(--accent);}
+table.sc tr.pad td{padding-top:14px;}
+table.sc tr.profit td{border-bottom:none;font-weight:700;font-size:15px;}
+table.sc td.pos{color:var(--good);}
+table.sc td.neg{color:var(--signal);}
+.tag{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.08em;color:var(--muted);margin-left:7px;}
+.pill{display:inline-block;font-family:var(--f-mono);font-size:9.5px;letter-spacing:.06em;
+      padding:1.5px 6px;border-radius:9px;background:var(--surface-2);color:var(--muted);margin-left:6px;}
+.pill.hot{background:var(--signal-wash);color:var(--signal);}
+.bidrow th{padding-bottom:11px !important;}
+.bidrow input{width:118px;margin-left:auto;display:block;text-align:right;height:32px;}
+
+.cur-tabs{display:flex;gap:0;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;}
+.cur-tabs button{border:0;background:var(--surface);color:var(--muted);font:inherit;
+                 font-family:var(--f-mono);font-size:11px;padding:5px 11px;cursor:pointer;
+                 border-right:1px solid var(--line);}
+.cur-tabs button:last-child{border-right:0;}
+.cur-tabs button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);font-weight:600;}
+
+/* ─── СЕТКА НИЗА ───────────────────────────────────────────────────── */
+.cols{display:grid;grid-template-columns:minmax(0,330px) minmax(0,1fr);gap:18px;align-items:start;}
+@media (max-width:900px){.cols{grid-template-columns:minmax(0,1fr);}}
+
+.risk{border-left:3px solid var(--signal);background:var(--signal-wash);}
+.risk .card-h{color:var(--signal);border-bottom-color:rgba(128,128,128,.18);}
+.risk-body{padding:16px;display:flex;flex-direction:column;gap:12px;}
+.risk-body p{margin:0;font-size:13px;line-height:1.55;color:var(--ink-soft);}
+.delta{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:24px;
+       font-weight:650;color:var(--signal);letter-spacing:-.02em;}
+.rowline{display:flex;justify-content:space-between;gap:14px;font-size:13.5px;padding:7px 0;
+         border-bottom:1px solid var(--line-soft);color:var(--ink-soft);}
+.rowline:last-of-type{border-bottom:none;}
+.rowline span:last-child{font-family:var(--f-mono);font-variant-numeric:tabular-nums;
+                         color:var(--ink);white-space:nowrap;}
+.rev-out{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px;padding:14px 16px 16px;
+         border-top:1px solid var(--line-soft);}
+.rev-out .k{font-size:13.5px;color:var(--ink-soft);}
+.rev-out .v{font-family:var(--f-mono);font-variant-numeric:tabular-nums;
+            font-size:clamp(25px,4.5vw,34px);font-weight:650;color:var(--good);
+            letter-spacing:-.025em;line-height:1;}
+.rev-out .v.bad{color:var(--signal);}
+.rev-out .sub{font-size:12.5px;color:var(--muted);width:100%;line-height:1.5;}
+
+footer{margin-top:30px;padding-top:18px;border-top:1px solid var(--line);
+       font-size:12.5px;color:var(--muted);line-height:1.6;}
+footer b{color:var(--ink-soft);font-weight:600;}
+footer p{margin:0 0 8px;}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="head-in">
+    <div class="brand">
+      <p class="eyebrow">Copart / IAAI → Львов</p>
+      <h1>Растаможка США&nbsp;→&nbsp;Украина
+        <span class="law">Закон №2611-VIII · пошлина + акциз + НДС + пенсионный сбор</span>
+      </h1>
+    </div>
+    <div class="rate-strip">
+      <div class="rate"><label for="usd">Курс USD ₴</label><input type="number" id="usd" step="0.0001" value="44.7128"></div>
+      <div class="rate"><label for="eur">Курс EUR ₴</label><input type="number" id="eur" step="0.0001" value="51.6191"></div>
+      <div class="rate"><label for="pm">Прожит. мин. ₴</label><input type="number" id="pm" step="1" value="3328"></div>
+      <span class="rate-date" id="rate-date">курс не обновлён</span>
+      <button class="btn" id="rates-btn" type="button">Курс НБУ</button>
+      <button class="btn" id="theme" type="button">Тема</button>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- ══ ЛОТ ═══════════════════════════════════════════════════════ -->
+  <section class="card">
+    <div class="card-h">Лот <span id="lot-when"></span></div>
+    <div class="loader">
+      <input type="url" id="lot-url" placeholder="https://www.copart.com/lot/60156236/..." autocomplete="off">
+      <button class="btn primary" id="load-btn" type="button">Загрузить</button>
+    </div>
+    <p class="note" id="lot-note">Откроется окно Chromium на несколько секунд — Copart пускает только настоящий браузер. Фото скачаются в <code>lots/&lt;номер&gt;/</code>.</p>
+    <div id="lot-view" hidden>
+      <div class="lot-title" id="lot-title"></div>
+      <div class="lot-strip" id="lot-strip"></div>
+      <div class="shots" id="lot-shots"></div>
+    </div>
+  </section>
+
+  <!-- ══ СЦЕНАРИИ ══════════════════════════════════════════════════ -->
+  <section class="card">
+    <div class="card-h">
+      Три сценария ставки
+      <span class="cur-tabs" id="cur-tabs">
+        <button type="button" data-c="usd" aria-pressed="true">USD</button>
+        <button type="button" data-c="eur" aria-pressed="false">EUR</button>
+        <button type="button" data-c="uah" aria-pressed="false">₴</button>
+      </span>
+    </div>
+    <div class="scroll">
+      <table class="sc">
+        <thead>
+          <tr class="bidrow">
+            <th>Ставка на аукционе<b style="font-weight:400;color:var(--muted);font-size:11.5px">введи три варианта</b></th>
+            <th><span style="color:var(--good)">низкая</span><input type="number" id="b1" step="250" value="15000"></th>
+            <th>средняя<input type="number" id="b2" step="250" value="19000"></th>
+            <th><span style="color:var(--signal)">высокая</span><input type="number" id="b3" step="250" value="23000"></th>
+          </tr>
+        </thead>
+        <tbody id="sc-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="cols" style="margin-top:18px">
+    <!-- ══ ВВОД ════════════════════════════════════════════════════ -->
+    <div>
+      <section class="card">
+        <div class="card-h">Автомобиль</div>
+        <div class="card-b">
+          <div class="field"><label for="year">Год выпуска</label><input type="number" id="year" step="1" value="2024"></div>
+          <div class="field"><label for="vol">Объём двигателя, л</label><input type="number" id="vol" step="0.1" value="2.0"></div>
+          <div class="field wide"><label for="fuel">Тип топлива</label>
+            <select id="fuel">
+              <option value="petrol" selected>Бензин</option>
+              <option value="diesel">Дизель</option>
+              <option value="phev">Plug-in гибрид (PHEV)</option>
+              <option value="ev">Электромобиль</option>
+            </select></div>
+          <div class="field wide" id="kwh-field" hidden><label for="kwh">Ёмкость батареи, кВт·ч</label>
+            <input type="number" id="kwh" step="1" value="75"></div>
+          <div class="field wide"><label for="origin">Происхождение <b>по VIN</b></label>
+            <select id="origin">
+              <option value="0.10" selected>США / Япония / Корея / ОАЭ — пошлина 10%</option>
+              <option value="0">ЕС или UK с сертификатом EUR.1 — 0%</option>
+              <option value="0.05">Plug-in гибрид — 5%</option>
+            </select></div>
+          <label class="check"><input type="checkbox" id="age1">
+            <span>Акциз с запасом <b>+1 год</b> — таможня может применить «полные календарные годы с года, следующего за выпуском»</span></label>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-h">Расходы</div>
+        <div class="card-b">
+          <label class="check"><input type="checkbox" id="autofee" checked>
+            <span>Сборы аукциона считать от ставки <span class="tag">оценка ±$200</span></span></label>
+          <div class="field" id="fee-field"><label for="fees">Сборы аукциона<span class="in-base">в базе</span></label>
+            <input type="number" id="fees" step="50" value="1300"></div>
+          <div class="field"><label for="freight">Фрахт до Украины<span class="in-base">в базе</span></label>
+            <input type="number" id="freight" step="50" value="2900"></div>
+          <div class="field"><label for="broker">Сертификация, брокер<span class="in-base out-base">вне базы</span></label>
+            <input type="number" id="broker" step="50" value="500"></div>
+          <div class="field"><label for="agent">Посредник<span class="in-base out-base">вне базы</span></label>
+            <input type="number" id="agent" step="50" value="500"></div>
+          <div class="field"><label for="repair">Ремонт в Украине<span class="in-base out-base">вне базы</span></label>
+            <input type="number" id="repair" step="100" value="4750"></div>
+          <div class="field"><label for="sale">Цена продажи в Украине<span class="hint">от неё считается прибыль</span></label>
+            <input type="number" id="sale" step="500" value="36000"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ══ ВЫВОД ═══════════════════════════════════════════════════ -->
+    <div>
+      <section class="card">
+        <div class="card-h">Выше какой ставки не заходить</div>
+        <div class="card-b" style="padding-bottom:0">
+          <div class="field"><label for="margin">Минимальная маржа, ради которой стоит связываться</label>
+            <input type="number" id="margin" step="250" value="4000"></div>
+        </div>
+        <div class="rev-out">
+          <span class="k">Максимальная ставка:</span>
+          <span class="v" id="maxbid">—</span>
+          <span class="sub" id="maxbid-sub">—</span>
+        </div>
+      </section>
+
+      <section class="card risk">
+        <div class="card-h">Риск переоценки таможней</div>
+        <div class="risk-body">
+          <p>Таможня может не принять инвойс аукциона и начислить по своей справочной базе. Для битых авто нужен пакет: инвойс, Condition&nbsp;Report, фото, акт оценки.</p>
+          <div class="field"><label for="ref">Справочная стоимость авто</label>
+            <input type="number" id="ref" step="500" value="30000"></div>
+          <div class="rowline"><span>Налоги по инвойсу <span class="tag">средний сценарий</span></span><span id="r-inv">—</span></div>
+          <div class="rowline"><span>Налоги по справочной базе</span><span id="r-ref">—</span></div>
+          <div><div class="delta" id="r-delta">—</div>
+            <p style="margin-top:4px">переплата, если инвойс не примут</p></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <footer>
+    <p><b>Что входит в таможенную стоимость:</b> цена лота + сборы аукциона + фрахт до границы Украины. Комиссия посредника, ремонт, сертификация и регистрация — <b>не входят</b>.</p>
+    <p><b>Акциз</b> = базовая ставка × объём в литрах × коэффициент возраста (максимум 15). Бензин €50 до 3.0 л и €100 свыше; дизель €75 до 3.5 л и €150 свыше; электро €1 за кВт·ч; PHEV фиксированные €100. От цены авто акциз не зависит.</p>
+    <p><b>Пенсионный сбор</b> платится при первой регистрации, не таможне. Пороги — 165 и 290 прожиточных минимумов; ставка на каждый сценарий считается отдельно, перескок через порог виден в строке.</p>
+    <p>Сборы аукциона в авторежиме — грубая оценка, реальные зависят от типа членства Copart. Оценка, не оферта.</p>
+  </footer>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const IDS = ["usd","eur","pm","b1","b2","b3","year","vol","kwh","fuel","origin","autofee",
+             "fees","freight","broker","agent","repair","sale","margin","ref","age1"];
+let CUR = "usd";
+
+const fmt = (v,d=2) => (isFinite(v)?v:0).toLocaleString("ru-RU",
+  {minimumFractionDigits:d,maximumFractionDigits:d}).replace(/ /g," ");
+
+/* деньги в выбранной валюте; расчёт всегда идёт в USD */
+function money(usdVal){
+  const rU = +$("usd").value||1, rE = +$("eur").value||1;
+  if (CUR === "eur") return "€" + fmt(usdVal * rU / rE);
+  if (CUR === "uah") return fmt(usdVal * rU, 0) + " ₴";
+  return "$" + fmt(usdVal);
+}
+
+/* грубая оценка сборов Copart от ставки */
+const feeOf = bid => Math.round(Math.min(bid * .06, 1000) + 400);
+const feesFor = bid => $("autofee").checked ? feeOf(bid) : (+$("fees").value||0);
+
+function exciseEUR(){
+  const fuel = $("fuel").value, vol = +$("vol").value||0;
+  if (fuel === "phev") return 100;
+  if (fuel === "ev")   return (+$("kwh").value||0);
+  let age = new Date().getFullYear() - (+$("year").value||new Date().getFullYear());
+  if ($("age1").checked) age += 1;
+  age = Math.min(15, Math.max(1, age));
+  const rate = fuel === "diesel" ? (vol > 3.5 ? 150 : 75) : (vol > 3.0 ? 100 : 50);
+  return rate * vol * age;
+}
+
+function pensionRate(uahValue){
+  const pm = +$("pm").value||0;
+  if (uahValue <= 165*pm) return .03;
+  if (uahValue <= 290*pm) return .04;
+  return .05;
+}
+
+/* полный расклад по одной ставке */
+function calc(bid){
+  const rU = +$("usd").value||1, rE = +$("eur").value||1, e2u = rE/rU;
+  const fees = feesFor(bid), fr = +$("freight").value||0;
+  const cv   = bid + fees + fr;
+  const duty = cv * (+$("origin").value);
+  const exE  = exciseEUR(), exU = exE * e2u;
+  const vat  = .20 * (cv + duty + exU);
+  const pR   = pensionRate(cv * rU), pens = cv * pR;
+  const other= (+$("broker").value||0) + (+$("agent").value||0);
+  const taxes= duty + vat + exU;
+  const total= cv + taxes + pens + other;
+  return {bid,fees,fr,cv,duty,exE,exU,vat,pR,pens,other,taxes,total,
+          withRepair: total + (+$("repair").value||0)};
+}
+
+const CELL = (v,cls="") => `<td class="n ${cls}">${v}</td>`;
+
+function render(){
+  $("kwh-field").hidden = $("fuel").value !== "ev";
+  $("fee-field").hidden = $("autofee").checked;
+
+  const S = [+$("b1").value||0, +$("b2").value||0, +$("b3").value||0].map(calc);
+  const sale = +$("sale").value||0;
+  const pm = +$("pm").value||0, rU = +$("usd").value||1;
+  const R = [];
+  const line = (label,tag,pick,cls="") =>
+    `<tr class="${cls}"><td>${label}${tag?` <span class="tag">${tag}</span>`:""}</td>` +
+    S.map(s => CELL(money(pick(s)))).join("") + "</tr>";
+
+  R.push(line("Ставка","",s=>s.bid));
+  R.push(line("Сборы аукциона", $("autofee").checked?"от ставки":"", s=>s.fees));
+  R.push(line("Фрахт до Украины","",s=>s.fr));
+  R.push(line("Таможенная стоимость","база налогов",s=>s.cv,"sub"));
+
+  const dp = (+$("origin").value*100).toFixed(0);
+  R.push(line(`Пошлина ${dp}%`,"",s=>s.duty,"pad"));
+  R.push(`<tr><td>Акциз <span class="tag">€${fmt(S[0].exE)} · от цены не зависит</span></td>` +
+         S.map(s=>CELL(money(s.exU))).join("") + "</tr>");
+  R.push(line("НДС 20%","от ТС + пошлина + акциз",s=>s.vat));
+  R.push(line("Итого таможне","",s=>s.taxes,"sub"));
+
+  /* пенсионный: ставка своя в каждом сценарии, перескок подсвечен */
+  const minR = Math.min(...S.map(s=>s.pR));
+  R.push(`<tr class="pad"><td>Пенсионный сбор <span class="tag">при регистрации</span></td>` +
+    S.map(s => `<td class="n">${money(s.pens)}<span class="pill ${s.pR>minR?"hot":""}">${(s.pR*100).toFixed(0)}%</span></td>`).join("") + "</tr>");
+
+  R.push(line("Сертификация, брокер","вне базы",()=>+$("broker").value||0));
+  R.push(line("Посредник","вне базы",()=>+$("agent").value||0));
+  R.push(line("Всего до ремонта","",s=>s.total,"grand"));
+  R.push(line("Ремонт","вне базы",()=>+$("repair").value||0,"pad"));
+  R.push(line("Себестоимость с ремонтом","",s=>s.withRepair,"grand"));
+
+  R.push(`<tr class="profit"><td>Прибыль при продаже за ${money(sale)}</td>` +
+    S.map(s => {const p = sale - s.withRepair;
+      return `<td class="n ${p>=0?"pos":"neg"}">${p>=0?"+":"−"}${money(Math.abs(p))}</td>`;
+    }).join("") + "</tr>");
+  $("sc-rows").innerHTML = R.join("");
+
+  /* обратный расчёт — бинарный поиск, пороги учитываются сами */
+  const budget = sale - (+$("repair").value||0) - (+$("margin").value||0);
+  const out = $("maxbid"), sub = $("maxbid-sub");
+  if (budget <= calc(0).total){
+    out.textContent = "не заходить"; out.classList.add("bad");
+    sub.textContent = "Цена продажи не покрывает даже налоги и расходы при нулевой ставке. Сделки нет.";
+  } else {
+    let lo = 0, hi = 500000;
+    for (let i=0;i<60;i++){const mid=(lo+hi)/2; if (calc(mid).total>budget) hi=mid; else lo=mid;}
+    const mb = Math.floor(lo/50)*50, c = calc(mb);
+    out.textContent = money(mb); out.classList.remove("bad");
+    const over = S.map((s,i)=>s.bid>mb ? ["низкая","средняя","высокая"][i] : null).filter(Boolean);
+    sub.innerHTML = `Себестоимость с ремонтом на этой ставке — <b>${money(c.withRepair)}</b>, маржа ${money(+$("margin").value||0)}. ` +
+      (over.length ? `<b style="color:var(--signal)">Выше потолка: ${over.join(", ")}.</b>`
+                   : `Все три сценария в пределах потолка.`);
+  }
+
+  /* риск переоценки — на среднем сценарии */
+  const mid = S[1];
+  const refCV = (+$("ref").value||0) + (+$("freight").value||0);
+  const rDuty = refCV*(+$("origin").value), rEx = mid.exU;
+  const rVat = .20*(refCV + rDuty + rEx);
+  const rPens = refCV * pensionRate(refCV*rU);
+  const refTax = rDuty + rEx + rVat + rPens, invTax = mid.taxes + mid.pens;
+  $("r-inv").textContent = money(invTax);
+  $("r-ref").textContent = money(refTax);
+  const d = refTax - invTax;
+  $("r-delta").textContent = (d>=0?"+":"−") + money(Math.abs(d));
+
+  const st = {}; IDS.forEach(k=>{const e=$(k); st[k]= e.type==="checkbox"?e.checked:e.value;});
+  try{ localStorage.setItem("rastam", JSON.stringify(st)); }catch(e){}
+}
+
+/* ─── загрузка лота ───────────────────────────────────────────────── */
+const FUEL_UI = {petrol:"petrol",diesel:"diesel",hybrid:"petrol",ev:"ev",phev:"phev"};
+
+async function loadLot(){
+  const url = $("lot-url").value.trim();
+  const note = $("lot-note"), btn = $("load-btn");
+  if (!url){ note.className="note err"; note.textContent="Вставь ссылку на лот."; return; }
+  btn.disabled = true; btn.textContent = "Гружу…";
+  note.className = "note";
+  note.textContent = "Открываю Copart в настоящем браузере — 10–20 секунд.";
+  try{
+    const r = await fetch("/api/lot?url=" + encodeURIComponent(url));
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || "неизвестная ошибка");
+    fillLot(j.lot);
+    note.className = "note";
+    note.textContent = `Готово. Фото: ${j.lot.photos.length} шт. в lots/${j.lot.lot}/`;
+  }catch(e){
+    note.className = "note err";
+    note.textContent = "Не вышло: " + e.message;
+  }finally{
+    btn.disabled = false; btn.textContent = "Загрузить";
+  }
+}
+
+function fillLot(L){
+  if (L.year)     $("year").value = L.year;
+  if (L.engine_l) $("vol").value  = L.engine_l;
+  if (L.fuel && FUEL_UI[L.fuel]) $("fuel").value = FUEL_UI[L.fuel];
+  $("origin").value = /^5|^4|^1/.test((L.vin||"").trim()) ? "0.10" : $("origin").value;
+
+  /* три сценария от оценочной розницы, иначе от текущей ставки */
+  const base = L.est_retail || (L.current_bid ? L.current_bid*6 : 0);
+  if (base){
+    $("b1").value = Math.round(base*.38/250)*250;
+    $("b2").value = Math.round(base*.48/250)*250;
+    $("b3").value = Math.round(base*.58/250)*250;
+  }
+  if (L.est_retail){
+    $("sale").value = Math.round(L.est_retail*.90/500)*500;
+    $("ref").value  = Math.round(L.est_retail*.75/500)*500;
+  }
+
+  $("lot-title").innerHTML =
+    `<span>${L.title||"лот "+L.lot}</span>` +
+    `<a href="${L.url}" target="_blank" rel="noopener">лот ${L.lot} на Copart ↗</a>`;
+
+  const km = L.odometer_km ? `${fmt(L.odometer_km,0)} км` : "—";
+  const F = [
+    ["VIN", L.vin||"—", "mono"],
+    ["Пробег", km + (L.odometer_actual?" · Actual":" · не подтверждён"), L.odometer_actual?"mono ok":"mono warn"],
+    ["Двигатель", (L.engine_raw||"—") + (L.fuel_raw?` · ${L.fuel_raw}`:""), ""],
+    ["Повреждения", [L.damage_primary,L.damage_secondary].filter(Boolean).join(" + ")||"—", ""],
+    ["Title", L.title_code||"—", ""],
+    ["На ходу", L.runs_drives?"Run & Drive":"нет отметки", L.runs_drives?"ok":"warn"],
+    ["Ключи", L.has_keys?"есть":"нет", L.has_keys?"ok":"warn"],
+    ["Текущая ставка", L.current_bid!=null?"$"+fmt(L.current_bid,0):"—", "mono"],
+    ["Оценка розницы", L.est_retail?"$"+fmt(L.est_retail,0):"—", "mono"],
+    ["Локация", L.location||"—", ""],
+    ["Торги", L.sale_date||"—", ""],
+  ];
+  $("lot-strip").innerHTML = F.map(([k,v,c]) =>
+    `<div class="lot-f"><div class="k">${k}</div><div class="v ${c}">${v}</div></div>`).join("");
+
+  $("lot-shots").innerHTML = (L.photos||[]).map(p =>
+    `<a href="${L.photo_dir}/${p.file}" target="_blank" rel="noopener" title="${p.label}">
+       <img src="${L.photo_dir}/${p.file}" alt="${p.label}" loading="lazy"></a>`).join("");
+  $("lot-view").hidden = false;
+  $("lot-when").textContent = "загружен " + new Date().toLocaleString("ru-RU");
+  render();
+}
+
+async function loadRates(){
+  const el = $("rate-date"), btn = $("rates-btn");
+  btn.disabled = true; el.textContent = "запрашиваю…";
+  try{
+    const j = await (await fetch("/api/rates")).json();
+    if (!j.ok) throw new Error(j.error);
+    $("usd").value = j.rates.usd.rate;
+    $("eur").value = j.rates.eur.rate;
+    el.textContent = "НБУ на " + j.rates.usd.date;
+    render();
+  }catch(e){
+    el.textContent = "курс введи руками";
+    goStandalone();
+  }finally{ btn.disabled = false; }
+}
+
+/* Без локального сервера остаётся ручной калькулятор: Copart и НБУ
+   доступны только через serve.py, статический хостинг до них не достаёт. */
+function goStandalone(){
+  if (document.body.dataset.standalone) return;
+  document.body.dataset.standalone = "1";
+  $("load-btn").disabled = true;
+  $("lot-url").disabled  = true;
+  $("rates-btn").disabled = true;
+  $("lot-note").className = "note";
+  $("lot-note").innerHTML =
+    "Загрузка лота и курс НБУ работают только с локальным сервером — Copart пускает " +
+    "лишь настоящий браузер, а статическая страница до него не достаёт.<br>" +
+    "Запусти у себя: <code>python serve.py</code> и открой " +
+    "<code>http://localhost:8731</code>. Здесь считай, подставляя цифры руками.";
+}
+
+/* ─── старт ───────────────────────────────────────────────────────── */
+try{
+  const s = JSON.parse(localStorage.getItem("rastam")||"null");
+  if (s) IDS.forEach(k=>{ if(s[k]===undefined) return;
+    const e=$(k); if(e.type==="checkbox") e.checked=s[k]; else e.value=s[k]; });
+}catch(e){}
+
+IDS.forEach(k=>{ $(k).addEventListener("input",render); $(k).addEventListener("change",render); });
+$("load-btn").addEventListener("click", loadLot);
+$("lot-url").addEventListener("keydown", e => { if (e.key === "Enter") loadLot(); });
+$("rates-btn").addEventListener("click", loadRates);
+$("cur-tabs").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  CUR = b.dataset.c;
+  [...$("cur-tabs").children].forEach(x => x.setAttribute("aria-pressed", x===b));
+  render();
+});
+
+const T = $("theme");
+try{ const t = localStorage.getItem("theme"); if(t) document.documentElement.dataset.theme = t; }catch(e){}
+T.addEventListener("click", () => {
+  const cur = document.documentElement.dataset.theme;
+  const dark = cur ? cur==="dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  const next = dark ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try{ localStorage.setItem("theme", next); }catch(e){}
+});
+
+render();
+loadRates();
+</script>
+</body>
+</html>
