@@ -383,6 +383,20 @@ let CUR = "usd";
 const fmt = (v,d=2) => (isFinite(v)?v:0).toLocaleString("ru-RU",
   {minimumFractionDigits:d,maximumFractionDigits:d}).replace(/ /g," ");
 
+/* Данные лота приходят либо от локального сервера, либо из закладки — а она
+   передаёт их фрагментом #lot=, то есть частью ссылки. Ссылку могли прислать
+   со стороны, поэтому содержимое считаем чужим: экранируем перед вставкой в
+   разметку и пропускаем только http(s), иначе href="javascript:…" выполнится
+   по клику. */
+const ESCM = {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"};
+const esc  = s => String(s ?? "").replace(/[&<>"']/g, c => ESCM[c]);
+const safeURL = u => {
+  try {
+    const x = new URL(String(u ?? ""), location.href);
+    return /^https?:$/.test(x.protocol) ? x.href : "#";
+  } catch (e) { return "#"; }
+};
+
 /* деньги в выбранной валюте; расчёт всегда идёт в USD */
 function money(usdVal){
   const rU = +$("usd").value||1, rE = +$("eur").value||1;
@@ -560,8 +574,9 @@ function fillLot(L){
   }
 
   $("lot-title").innerHTML =
-    `<span>${L.title||"лот "+L.lot}</span>` +
-    `<a href="${L.url}" target="_blank" rel="noopener">лот ${L.lot} на Copart ↗</a>`;
+    `<span>${esc(L.title || "лот " + L.lot)}</span>` +
+    `<a href="${esc(safeURL(L.url))}" target="_blank" rel="noopener">` +
+    `лот ${esc(L.lot)} на Copart ↗</a>`;
 
   const km = L.odometer_km ? `${fmt(L.odometer_km,0)} км` : "—";
   const F = [
@@ -577,16 +592,17 @@ function fillLot(L){
     ["Локация", L.location||"—", ""],
     ["Торги", L.sale_date||"—", ""],
   ];
+  /* k и c — литералы из массива выше, v приходит из данных лота */
   $("lot-strip").innerHTML = F.map(([k,v,c]) =>
-    `<div class="lot-f"><div class="k">${k}</div><div class="v ${c}">${v}</div></div>`).join("");
+    `<div class="lot-f"><div class="k">${k}</div><div class="v ${c}">${esc(v)}</div></div>`).join("");
 
   /* фото приходят двумя путями: из закладки — ссылки на CDN Copart
      (общий префикс вынесен в L.pref), с локального сервера — файлы в lots/ */
-  const shot = p => p.tail !== undefined ? (L.pref||"") + p.tail
-                                         : `${L.photo_dir}/${p.file}`;
+  const shot = p => esc(safeURL(p.tail !== undefined ? (L.pref||"") + p.tail
+                                                     : `${L.photo_dir}/${p.file}`));
   $("lot-shots").innerHTML = (L.photos||[]).map(p =>
-    `<a href="${shot(p)}" target="_blank" rel="noopener" title="${p.label}">
-       <img src="${shot(p)}" alt="${p.label}" loading="lazy"></a>`).join("");
+    `<a href="${shot(p)}" target="_blank" rel="noopener" title="${esc(p.label)}">
+       <img src="${shot(p)}" alt="${esc(p.label)}" loading="lazy"></a>`).join("");
   $("lot-view").hidden = false;
   $("lot-when").textContent = "загружен " + new Date().toLocaleString("ru-RU");
   render();
