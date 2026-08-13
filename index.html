@@ -128,9 +128,21 @@ input:hover,select:hover{border-color:var(--muted);}
 .lot-title{padding:14px 16px 12px;font-size:17px;font-weight:650;letter-spacing:-.015em;
            display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;}
 .lot-title a{font-family:var(--f-mono);font-size:11.5px;font-weight:400;}
+.bm{padding:16px;display:flex;flex-direction:column;gap:11px;}
+.bm p{margin:0;font-size:13.5px;color:var(--ink-soft);line-height:1.55;}
+.bm-why{font-size:12.5px;color:var(--muted);}
+.bm-btn{display:inline-block;background:var(--accent);color:var(--accent-ink);
+        font-weight:600;font-size:14px;text-decoration:none;padding:9px 16px;
+        border-radius:var(--r);cursor:grab;border:1px solid var(--accent);}
+.bm-btn:hover{filter:brightness(1.08);}
+.bm-btn:active{cursor:grabbing;}
 .shots{display:flex;gap:7px;overflow-x:auto;padding:14px 16px;}
-.shots img{height:78px;width:auto;border-radius:2px;border:1px solid var(--line);
-           flex:none;cursor:zoom-in;background:var(--surface-2);}
+/* flex-элемент здесь ссылка, а не картинка: без flex:none на ней ряд ужимается.
+   aspect-ratio держит место до загрузки, иначе миниатюры схлопываются в полоски. */
+.shots > a{flex:none;display:block;line-height:0;}
+.shots img{height:78px;width:auto;aspect-ratio:4/3;object-fit:cover;
+           border-radius:2px;border:1px solid var(--line);
+           cursor:zoom-in;background:var(--surface-2);}
 
 /* ─── ТАБЛИЦА СЦЕНАРИЕВ ────────────────────────────────────────────── */
 .scroll{overflow-x:auto;}
@@ -231,6 +243,21 @@ footer p{margin:0 0 8px;}
       <div class="lot-title" id="lot-title"></div>
       <div class="lot-strip" id="lot-strip"></div>
       <div class="shots" id="lot-shots"></div>
+    </div>
+  </section>
+
+  <!-- ══ ЗАКЛАДКА ══════════════════════════════════════════════════ -->
+  <section class="card">
+    <div class="card-h">Заполнять автоматически — без установки</div>
+    <div class="bm">
+      <p>Перетащи эту кнопку на панель закладок браузера
+        <span class="tag">Ctrl+Shift+B — показать панель</span></p>
+      <p><a class="bm-btn" id="bm-link" href="#" draggable="true">Лот → калькулятор</a></p>
+      <p>Дальше: открываешь лот на Copart, жмёшь закладку — калькулятор
+        откроется в новой вкладке уже заполненным, вместе с фотографиями.</p>
+      <p class="bm-why">Скрипт выполняется внутри страницы Copart, поэтому данные отдаются
+        без помех: для их защиты это обычный клик обычного посетителя. Сама по себе
+        эта страница до Copart достучаться не может — он режет любые запросы со стороны.</p>
     </div>
   </section>
 
@@ -553,9 +580,13 @@ function fillLot(L){
   $("lot-strip").innerHTML = F.map(([k,v,c]) =>
     `<div class="lot-f"><div class="k">${k}</div><div class="v ${c}">${v}</div></div>`).join("");
 
+  /* фото приходят двумя путями: из закладки — ссылки на CDN Copart
+     (общий префикс вынесен в L.pref), с локального сервера — файлы в lots/ */
+  const shot = p => p.tail !== undefined ? (L.pref||"") + p.tail
+                                         : `${L.photo_dir}/${p.file}`;
   $("lot-shots").innerHTML = (L.photos||[]).map(p =>
-    `<a href="${L.photo_dir}/${p.file}" target="_blank" rel="noopener" title="${p.label}">
-       <img src="${L.photo_dir}/${p.file}" alt="${p.label}" loading="lazy"></a>`).join("");
+    `<a href="${shot(p)}" target="_blank" rel="noopener" title="${p.label}">
+       <img src="${shot(p)}" alt="${p.label}" loading="lazy"></a>`).join("");
   $("lot-view").hidden = false;
   $("lot-when").textContent = "загружен " + new Date().toLocaleString("ru-RU");
   render();
@@ -622,14 +653,54 @@ T.addEventListener("click", () => {
   try{ localStorage.setItem("theme", next); }catch(e){}
 });
 
+/* ─── закладка ────────────────────────────────────────────────────── */
+async function buildBookmarklet(){
+  const a = $("bm-link");
+  try{
+    let src = await (await fetch("bookmarklet.js")).text();
+    src = src.replace(/\/\*[\s\S]*?\*\//g, "")      // комментарии
+             .replace(/\s*\n\s*/g, " ")             // переносы
+             .replace(/\s{2,}/g, " ").trim();
+    const here = location.origin + location.pathname;
+    a.href = "javascript:" + src.replace("__CALC__", here);
+  }catch(e){
+    a.removeAttribute("href");
+    a.style.opacity = ".5";
+    a.textContent = "bookmarklet.js не найден";
+  }
+}
+
+/* данные из закладки приходят фрагментом #lot=<base64 JSON> */
+function readHash(){
+  const m = /[#&]lot=([^&]+)/.exec(location.hash);
+  if (!m) return null;
+  try{
+    const bin = atob(decodeURIComponent(m[1]));
+    const b = new Uint8Array(bin.length);
+    for (let i=0;i<bin.length;i++) b[i] = bin.charCodeAt(i);
+    return JSON.parse(new TextDecoder().decode(b));
+  }catch(e){ return null; }
+}
+
 render();
+buildBookmarklet();
+
+const fromHash = readHash();
+if (fromHash){
+  $("lot-url").value = fromHash.url || "";
+  fillLot(fromHash);
+  $("lot-note").className = "note";
+  $("lot-note").textContent =
+    `Данные пришли из закладки: ${(fromHash.photos||[]).length} фото, лот ${fromHash.lot}.`;
+  history.replaceState(null, "", location.pathname + location.search);
+}
 
 /* ссылка может прийти параметром ?lot= — с опубликованной версии */
 const passed = new URLSearchParams(location.search).get("lot");
 if (passed) $("lot-url").value = passed;
 
 loadRates().then(() => {
-  if (passed && !document.body.dataset.standalone) loadLot();
+  if (passed && !fromHash && !document.body.dataset.standalone) loadLot();
 });
 </script>
 </body>
