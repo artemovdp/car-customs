@@ -159,6 +159,8 @@ details.local > summary:hover{color:var(--accent);}
   text-transform:uppercase;color:var(--muted);font-weight:400;}
 .warn-note{border-left:2px solid var(--signal);padding-left:12px;color:var(--muted) !important;}
 .warn-note b{color:var(--signal);}
+.sale-note{margin:-3px 0 0;font-size:12px;color:var(--muted);line-height:1.5;}
+.sale-note a{display:inline-block;margin-top:6px;font-weight:600;font-size:12.5px;}
 .cmd{position:relative;background:var(--surface-2);border:1px solid var(--line-soft);
      border-radius:var(--r);}
 .cmd pre{margin:0;padding:11px 60px 11px 13px;overflow-x:auto;font-family:var(--f-mono);
@@ -405,8 +407,11 @@ python serve.py</pre></div>
             <input type="number" id="agent" step="50" value="500"></div>
           <div class="field"><label for="repair">Ремонт в Украине<span class="in-base out-base">вне базы</span></label>
             <input type="number" id="repair" step="100" value="4750"></div>
-          <div class="field"><label for="sale">Цена продажи в Украине<span class="hint">от неё считается прибыль</span></label>
+          <div class="field"><label for="sale">Цена продажи в Украине
+              <span class="hint">поставь свою — отсюда считается прибыль</span></label>
             <input type="number" id="sale" step="500" value="36000"></div>
+          <p class="sale-note" id="sale-note">Подставить эту цифру неоткуда: украинский
+            рынок ниоткуда не выгружается. Смотри живые объявления и ставь руками.</p>
         </div>
       </section>
     </div>
@@ -595,6 +600,24 @@ function render(){
   try{ localStorage.setItem("rastam", JSON.stringify(st)); }catch(e){}
 }
 
+/* Ссылка на живые объявления AUTO.RIA по этой модели: берём марку и модель
+   из заголовка лота и даём запас в год по обе стороны от года выпуска. */
+function showMarketLink(L){
+  const note = $("sale-note");
+  const words = String(L.title||"").replace(/^(19|20)\d{2}\s*/, "").trim().split(/\s+/);
+  if (!words[0]){ return; }
+  const q = words.slice(0,2).join(" ");
+  const y = L.year;
+  let u = "https://auto.ria.com/uk/search/?text=" + encodeURIComponent(q);
+  if (y) u += `&year%5B0%5D.gte=${y-1}&year%5B0%5D.lte=${y+1}`;
+  note.innerHTML =
+    "Подставить эту цифру неоткуда: украинский рынок ниоткуда не выгружается. " +
+    "Посмотри живые объявления и вычти скидку за аварийную историю — обычно " +
+    "<b>25–35%</b> для свежих премиальных.<br>" +
+    `<a href="${esc(safeURL(u))}" target="_blank" rel="noopener">` +
+    `${esc(q)} ${y ? esc(y-1) + "–" + esc(y+1) : ""} на AUTO.RIA ↗</a>`;
+}
+
 /* ─── загрузка лота ───────────────────────────────────────────────── */
 const FUEL_UI = {petrol:"petrol",diesel:"diesel",hybrid:"petrol",ev:"ev",phev:"phev"};
 
@@ -644,10 +667,12 @@ function fillLot(L){
     $("b2").value = Math.round(base*.48/250)*250;
     $("b3").value = Math.round(base*.58/250)*250;
   }
-  if (L.est_retail){
-    $("sale").value = Math.round(L.est_retail*.90/500)*500;
-    $("ref").value  = Math.round(L.est_retail*.75/500)*500;
-  }
+  /* Цену продажи намеренно НЕ подставляем. Единственное, что известно о цене —
+     Estimated retail value от Copart, а это розница целой машины в США; к цене
+     битого американца после ремонта в Украине она отношения не имеет. Вместо
+     догадки даём ссылку на живые объявления. */
+  if (L.est_retail) $("ref").value = Math.round(L.est_retail*.75/500)*500;
+  showMarketLink(L);
 
   $("lot-title").innerHTML =
     `<span>${esc(L.title || "лот " + L.lot)}</span>` +
