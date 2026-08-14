@@ -17,7 +17,7 @@ if errorlevel 1 (
     python -m playwright install chromium || goto :fail
 )
 
-start "" http://localhost:8731
+rem Браузер открывает сам serve.py — ему нужно подставить ключ доступа в ссылку.
 python serve.py
 exit /b 0
 
