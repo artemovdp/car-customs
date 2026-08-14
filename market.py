@@ -55,8 +55,17 @@ def parse_page(html):
 
         g = re.search(r'class="generation">\s*<span>([^<]+)</span>', c)
 
+        # AUTO.RIA сам помечает аварийные объявления — это и есть прямой
+        # аналог отремонтированного пригона, без всяких коэффициентов.
+        crashed = bool(re.search(r'class="state[^"]*"[^>]*>\s*Був в ДТП', c))
+        dealer  = bool(re.search(r"Перевірений дилер|автосалон", c, re.I))
+        desc    = re.search(r'class="descriptions-ticket">\s*<span>(.{0,300}?)<', c, re.S)
+        d       = desc.group(1) if desc else ""
+        usa     = bool(re.search(r"США|Америк|USA|Копарт|Copart|IAAI", d, re.I))
+
         out.append({"price": price, "year": year, "km": km, "vol": vol,
-                    "fuel": fuel, "gen": (g.group(1).strip() if g else None)})
+                    "fuel": fuel, "gen": (g.group(1).strip() if g else None),
+                    "crashed": crashed, "dealer": dealer, "usa": usa})
     return out
 
 
@@ -96,19 +105,38 @@ def collect(brand, model, y_from, y_to, pages, pause):
     return rows
 
 
+def stats(prices):
+    ps = sorted(prices)
+    if len(ps) < 3:                     # на двух объявлениях медианы нет
+        return None
+    return {"n": len(ps), "min": ps[0], "p25": pct(ps, .25),
+            "median": pct(ps, .5), "p75": pct(ps, .75), "max": ps[-1]}
+
+
 def summarize(rows):
+    """Целые и аварийные считаются раздельно.
+
+    Мешать их в одну медиану нельзя: в выдаче X3 пометка «Був в ДТП» стоит
+    примерно на двух третях объявлений, и общая медиана оказывается где-то
+    посередине. Для отремонтированного пригона прямой аналог — именно
+    аварийные, и никакого коэффициента к ним применять уже не нужно.
+    """
     by_year = {}
     for y in sorted({r["year"] for r in rows if r["year"]}):
-        ps = sorted(r["price"] for r in rows if r["year"] == y)
-        kms = sorted(r["km"] for r in rows if r["year"] == y and r["km"])
-        if len(ps) < 3:                 # на двух объявлениях медианы нет
+        cur  = [r for r in rows if r["year"] == y]
+        kms  = [r["km"] for r in cur if r["km"]]
+        all_ = stats(r["price"] for r in cur)
+        if not all_:
             continue
-        by_year[str(y)] = {
-            "n": len(ps),
-            "min": ps[0], "p25": pct(ps, .25), "median": pct(ps, .5),
-            "p75": pct(ps, .75), "max": ps[-1],
-            "km_median": pct(kms, .5) if kms else None,
-        }
+        rec = dict(all_)
+        rec["km_median"] = pct(sorted(kms), .5) if kms else None
+        for key, sel in (("clean",   lambda r: not r["crashed"]),
+                         ("crashed", lambda r: r["crashed"]),
+                         ("usa",     lambda r: r["usa"])):
+            s = stats(r["price"] for r in cur if sel(r))
+            if s:
+                rec[key] = s
+        by_year[str(y)] = rec
     return by_year
 
 
@@ -144,12 +172,17 @@ def main():
                   "скидку за аварийную историю калькулятор вычитает отдельно.")
     OUT.write_text(json.dumps(db, ensure_ascii=False, indent=1), encoding="utf-8")
 
-    print("─" * 54)
-    print(f"  {'год':<6}{'шт':>5}{'p25':>10}{'медиана':>11}{'p75':>10}")
+    print("─" * 66)
+    print(f"  {'год':<6}{'всего':>6}{'медиана':>10}   "
+          f"{'целых':>6}{'медиана':>10}   {'в ДТП':>6}{'медиана':>10}")
     for y, s in by_year.items():
-        print(f"  {y:<6}{s['n']:>5}{s['p25']:>10}{s['median']:>11}{s['p75']:>10}")
-    print("─" * 54)
-    print(f"  записано: {OUT}  (всего {len(rows)} объявлений)")
+        c, d = s.get("clean") or {}, s.get("crashed") or {}
+        print(f"  {y:<6}{s['n']:>6}{s['median']:>10}   "
+              f"{c.get('n','—'):>6}{c.get('median','—'):>10}   "
+              f"{d.get('n','—'):>6}{d.get('median','—'):>10}")
+    print("─" * 66)
+    print(f"  записано: {OUT}  (всего {len(rows)} объявлений, "
+          f"из США по описанию {sum(1 for r in rows if r['usa'])})")
 
 
 if __name__ == "__main__":

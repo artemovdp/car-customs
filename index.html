@@ -471,10 +471,10 @@ python serve.py</pre></div>
             <input type="number" id="sale" step="500" value="36000"></div>
           <div class="mkt" id="mkt" hidden>
             <div class="mkt-h">Рынок Украины <span id="mkt-src"></span></div>
-            <div class="mkt-row"><span>Медиана целых</span><b id="mkt-med">—</b></div>
+            <div class="mkt-row"><span id="mkt-lbl">Медиана рынка</span><b id="mkt-med">—</b></div>
             <div class="mkt-row"><span>Половина рынка в вилке</span><b id="mkt-iqr">—</b></div>
             <div class="mkt-cut">
-              <label for="cut">Скидка за аварийную историю</label>
+              <label for="cut" id="mkt-cut-lbl">Скидка за аварийную историю</label>
               <span><input type="number" id="cut" step="1" min="0" max="90" value="30">%</span>
             </div>
             <div class="mkt-row out"><span>Реальная цена продажи</span><b id="mkt-sug">—</b></div>
@@ -869,8 +869,10 @@ function applyAnalysis(a){
 }
 
 /* ─── база цен украинского рынка ──────────────────────────────────── */
-let MARKET = null, MKT_HIT = null;
-fetch("market.json").then(r => r.ok ? r.json() : null)
+let MARKET = null, MKT_HIT = null, MKT_BASE = null;
+/* ?v= обходит кеш: без него после пересбора базы страница неделю показывает
+   старые медианы — и локально, и на GitHub Pages. */
+fetch("market.json?v=" + Date.now()).then(r => r.ok ? r.json() : null)
   .then(j => { MARKET = j; if (LAST_LOT) showMarket(LAST_LOT); })
   .catch(() => {});
 
@@ -895,15 +897,35 @@ function showMarket(L){
   MKT_HIT = (rec && y && rec.by_year[String(y)]) || null;
 
   if (MKT_HIT){
+    /* За основу берём объявления с пометкой «Був в ДТП» — это прямой аналог
+       отремонтированного пригона. Скидку к ним почти не применяем: она уже
+       в цене. Если аварийных мало, откатываемся на целые и режем сильнее. */
+    const cr = MKT_HIT.crashed, cl = MKT_HIT.clean;
+    const useCrashed = cr && cr.n >= 5;
+    MKT_BASE = useCrashed ? cr : (cl && cl.n >= 3 ? cl : MKT_HIT);
+    if (!$("cut").dataset.touched) $("cut").value = useCrashed ? 10 : 25;
+
     box.hidden = false;
-    $("mkt-src").textContent = `${MKT_HIT.n} объявл. · ${y} · ${esc(rec.collected)}`;
-    $("mkt-med").textContent = "$" + fmt(MKT_HIT.median, 0);
-    $("mkt-iqr").textContent = "$" + fmt(MKT_HIT.p25, 0) + " – $" + fmt(MKT_HIT.p75, 0);
+    $("mkt-src").textContent = `${MKT_BASE.n} объявл. · ${y} · ${esc(rec.collected)}`;
+    $("mkt-lbl").textContent = useCrashed ? "Медиана после ДТП" : "Медиана целых";
+    $("mkt-med").textContent = "$" + fmt(MKT_BASE.median, 0);
+    $("mkt-iqr").textContent = "$" + fmt(MKT_BASE.p25, 0) + " – $" + fmt(MKT_BASE.p75, 0);
+    $("mkt-cut-lbl").textContent = useCrashed
+      ? "Ещё скидка: торг и американский тайтл"
+      : "Скидка за аварийную историю";
     renderCut();
     applyCut();          // цена продажи проставляется сразу, править можно после
-    note.innerHTML = `Цены собраны с AUTO.RIA — это <b>запрошенные</b> цены целых машин, ` +
-      `не цены сделок: реальная продажа обычно на 5–10% ниже. ` +
-      (MKT_HIT.n < 15 ? `<b>Выборка мелкая (${MKT_HIT.n}) — проверь глазами.</b> ` : "") + link;
+
+    const other = useCrashed && cl && cl.n >= 3
+      ? ` Целых в этом году ${cl.n}, их медиана $${fmt(cl.median,0)}.` : "";
+    note.innerHTML =
+      (useCrashed
+        ? `За основу взяты объявления с пометкой <b>«Був в ДТП»</b> — это прямой аналог ` +
+          `отремонтированного пригона, скидка за аварийность в их цене уже сидит.${other} `
+        : `Аварийных объявлений за этот год мало, поэтому основа — целые машины, ` +
+          `и скидка нужна полная. `) +
+      `Это <b>запрошенные</b> цены, а не цены сделок: реально продают на 5–10% ниже. ` +
+      (MKT_BASE.n < 15 ? `<b>Выборка мелкая (${MKT_BASE.n}) — проверь глазами.</b> ` : "") + link;
   } else {
     box.hidden = true;
     note.innerHTML = "Этой модели нет в собранной базе — рынок посмотри сам и поставь " +
@@ -912,15 +934,15 @@ function showMarket(L){
 }
 
 const cutValue = () => Math.min(90, Math.max(0, +$("cut").value || 0));
-const cutPrice = () => Math.round(MKT_HIT.median * (1 - cutValue()/100) / 100) * 100;
+const cutPrice = () => Math.round(MKT_BASE.median * (1 - cutValue()/100) / 100) * 100;
 
 function renderCut(){
-  if (!MKT_HIT) return;
+  if (!MKT_BASE) return;
   $("mkt-sug").textContent = "$" + fmt(cutPrice(), 0);
 }
 
 function applyCut(){
-  if (!MKT_HIT) return;
+  if (!MKT_BASE) return;
   $("sale").value = cutPrice();
   render();
 }
@@ -1074,7 +1096,10 @@ $("ai-btn").addEventListener("click", analyzePhotos);
 $("rep-presets").addEventListener("click", e => {
   const b = e.target.closest("button"); if (b) presetRepair(b.dataset.p);
 });
-$("cut").addEventListener("input", () => { renderCut(); applyCut(); });
+$("cut").addEventListener("input", e => {
+  e.target.dataset.touched = "1";   // свою скидку не перетираем при смене лота
+  renderCut(); applyCut();
+});
 $("mkt-apply").addEventListener("click", applyCut);
 $("load-btn").addEventListener("click", loadLot);
 $("lot-url").addEventListener("keydown", e => { if (e.key === "Enter") loadLot(); });
