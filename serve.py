@@ -10,11 +10,12 @@
 Всё крутится на твоём ноутбуке. Copart пускает только настоящий браузер,
 поэтому /api/lot поднимает окно Chromium на несколько секунд — так и задумано.
 """
-import json, sys, threading, time, urllib.parse, pathlib, subprocess
+import json, re, sys, threading, time, urllib.parse, pathlib, subprocess
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 import requests
 from lot import parse_url, LOTS_DIR
+from analyze import analyze
 
 ROOT = pathlib.Path(__file__).parent
 PORT = 8731
@@ -40,6 +41,7 @@ def log(msg):
 # остальные обработчики встают намертво. Поэтому браузер живёт в отдельном
 # процессе (lot.py), а сервер только ждёт его и читает результат.
 _browser_lock = threading.Lock()
+_claude_lock  = threading.Lock()   # разбор фото тоже строго по одному
 
 NBU = "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?valcode={}&json"
 
@@ -113,6 +115,25 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(200, {"ok": True, "rates": nbu_rates()})
             except Exception as e:
                 self._json(502, {"ok": False, "error": f"НБУ не ответил: {e}"})
+            return
+
+        if parsed.path == "/api/analyze":
+            lot = urllib.parse.parse_qs(parsed.query).get("lot", [""])[0].strip()
+            if not re.fullmatch(r"\d{6,10}", lot):
+                self._json(400, {"ok": False, "error": "Некорректный номер лота"})
+                return
+            if not _claude_lock.acquire(blocking=False):
+                self._json(429, {"ok": False,
+                                 "error": "Разбор уже идёт — подожди, он небыстрый"})
+                return
+            try:
+                log(f"разбираю фото лота {lot}")
+                self._json(200, {"ok": True, "analysis": analyze(lot)})
+            except Exception as e:
+                log(f"разбор не вышел: {e}")
+                self._json(502, {"ok": False, "error": str(e)[:400]})
+            finally:
+                _claude_lock.release()
             return
 
         if parsed.path == "/api/lot":

@@ -197,6 +197,28 @@ details.local > summary:hover{color:var(--accent);}
              font-weight:700;color:var(--accent);}
 .rep-note{margin:0;padding:12px 16px 14px;font-size:12px;color:var(--muted);line-height:1.55;}
 .rep-note b{color:var(--ink-soft);}
+
+/* ─── РАЗБОР ФОТО ──────────────────────────────────────────────────── */
+.ai{padding:14px 16px;border-bottom:1px solid var(--line-soft);
+    display:flex;flex-direction:column;gap:9px;}
+.ai-note{margin:0;font-size:12px;color:var(--muted);line-height:1.5;}
+.ai-note.err{color:var(--signal);}
+.ai-out{display:flex;flex-direction:column;gap:7px;border-top:1px solid var(--line-soft);
+        padding-top:11px;}
+.ai-line{display:grid;grid-template-columns:74px 1fr;gap:9px;font-size:12.5px;
+         color:var(--ink-soft);line-height:1.45;}
+.ai-line span:first-child{font-family:var(--f-mono);font-size:9.5px;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--muted);padding-top:2px;}
+.ai-v{font-weight:600;}
+.ai-v.ok{color:var(--good);}
+.ai-v.bad{color:var(--signal);}
+.ai-v.dim{color:var(--muted);}
+.ai-notes{margin:2px 0 0;padding-left:16px;display:flex;flex-direction:column;gap:5px;}
+.ai-notes li{font-size:12px;color:var(--muted);line-height:1.5;}
+.ai-cost{font-family:var(--f-mono);font-size:10px;color:var(--muted);letter-spacing:.06em;}
+.ai-line .dimmed{color:var(--muted);}
+.ai-line .dimmed em{display:block;font-style:normal;font-size:11.5px;color:var(--signal);
+                    margin-top:3px;}
 .cmd{position:relative;background:var(--surface-2);border:1px solid var(--line-soft);
      border-radius:var(--r);}
 .cmd pre{margin:0;padding:11px 60px 11px 13px;overflow-x:auto;font-family:var(--f-mono);
@@ -469,6 +491,13 @@ python serve.py</pre></div>
             <button type="button" data-p="min">дёшево</button>
             <button type="button" data-p="max">дорого</button>
           </span>
+        </div>
+        <div class="ai" id="ai-box">
+          <button class="btn primary" type="button" id="ai-btn" disabled>Разобрать фотографии</button>
+          <p class="ai-note" id="ai-note">Загрузи лот — и Claude посмотрит снимки:
+            сработали ли подушки, что реально помято, видно ли силовую. Уточняет
+            смету точнее, чем коды повреждений из карточки.</p>
+          <div class="ai-out" id="ai-out" hidden></div>
         </div>
         <div class="rep" id="rep-rows"></div>
         <div class="rep-total">
@@ -758,6 +787,87 @@ function presetRepair(which){
   sumRepair();
 }
 
+/* ─── разбор фотографий через Claude ──────────────────────────────── */
+/* Названия деталей, которыми оперирует разбор. Строка сметы сопоставляется с
+   самым длинным подходящим названием, иначе «Дверь» перехватывала бы
+   «Дверь багажника». */
+const PART_NAMES = ["Бампер передний","Фара","Крыло переднее","Капот","Решётка радиатора",
+  "Радиатор","Верхняя панель передка","Бампер задний","Фонарь задний","Дверь багажника",
+  "Дверь","Крыло заднее","Порог","Зеркало","Подушки и блок SRS"];
+
+function partOfRow(rowName){
+  let best = null;
+  for (const p of PART_NAMES)
+    if (rowName.startsWith(p) && (!best || p.length > best.length)) best = p;
+  return best;
+}
+
+async function analyzePhotos(){
+  const btn = $("ai-btn"), note = $("ai-note");
+  if (!LAST_LOT || !LAST_LOT.lot) return;
+  btn.disabled = true; btn.textContent = "Смотрю снимки…";
+  note.className = "ai-note";
+  note.textContent = "Читаю фотографии по одной — это занимает около трёх минут.";
+  try{
+    const j = await (await fetch("/api/analyze?lot=" + encodeURIComponent(LAST_LOT.lot))).json();
+    if (!j.ok) throw new Error(j.error || "не вышло");
+    applyAnalysis(j.analysis);
+    note.className = "ai-note";
+    note.textContent = "Смета уточнена. Разбор добавляет позиции, но не снимает: " +
+      "по одним и тем же снимкам он то видит разбитую фару, то считает её целой, " +
+      "поэтому лишнее снимай сам, сверившись с фото.";
+  }catch(e){
+    note.className = "ai-note err";
+    note.textContent = e instanceof TypeError
+      ? "Разбор работает только с локальным сервером — запусти start.bat."
+      : "Не вышло: " + e.message;
+  }finally{
+    btn.disabled = false; btn.textContent = "Разобрать фотографии";
+  }
+}
+
+function applyAnalysis(a){
+  const zones = (a.zones && a.zones.length) ? a.zones : ["front"];
+  setZones(zones, a.airbags === "deployed");
+
+  /* Ошибки разбора несимметричны по цене. Лишняя галочка стоит минуты на её
+     снятие, пропущенная деталь — реальных денег на ремонте. Проверка на живом
+     лоте это подтвердила: разные запуски по одним снимкам то видели разбитую
+     фару, то объявляли её целой.
+
+     Поэтому применяем только то, в чём разбор устойчив: зоны кузова (их он
+     определил одинаково и верно) и список пострадавшего. Слово «цело» по
+     отдельной детали галочку не снимает — оно уходит в отчёт, решать человеку. */
+  const dmg = new Set(a.damaged || []);
+  REPAIR.forEach(([, name], i) => {
+    const p = partOfRow(name);
+    if (p && dmg.has(p)) {
+      $("rc"+i).closest(".rep-row").hidden = false;
+      $("rc"+i).checked = true;
+    }
+  });
+  sumRepair();
+
+  const V = (txt, cls) => `<span class="ai-v ${cls}">${esc(txt)}</span>`;
+  const air = {deployed:["сработали","bad"], intact:["целые","ok"], unclear:["не понять","dim"]}
+              [a.airbags] || ["не понять","dim"];
+  const str = {visible_ok:["видно, что цела","ok"], visible_damaged:["задета","bad"],
+               not_visible:["не видно на фото","dim"]}[a.structure] || ["не видно","dim"];
+  $("ai-out").hidden = false;
+  $("ai-out").innerHTML =
+    `<div class="ai-line"><span>Удар</span><div>${esc(a.impact||"—")}</div></div>` +
+    `<div class="ai-line"><span>Подушки</span><div>${V(air[0],air[1])} — ${esc(a.airbags_why||"")}</div></div>` +
+    `<div class="ai-line"><span>Силовая</span><div>${V(str[0],str[1])} — ${esc(a.structure_why||"")}</div></div>` +
+    `<div class="ai-line"><span>Помято</span><div>${esc((a.damaged||[]).join(", ")||"—")}</div></div>` +
+    `<div class="ai-line"><span>Считает целым</span><div class="dimmed">` +
+      `${esc((a.intact||[]).join(", ")||"—")}` +
+      `<em> — галочки не снимаю: на этом разбор ошибается чаще всего, ` +
+      `снимай сам, если согласен</em></div></div>` +
+    (a.notes && a.notes.length
+      ? `<ul class="ai-notes">${a.notes.map(n=>`<li>${esc(n)}</li>`).join("")}</ul>` : "") +
+    `<div class="ai-cost">${esc(a.photos||0)} фото · $${esc(a.cost_usd||0)} · ${esc(a.model||"")}</div>`;
+}
+
 /* ─── база цен украинского рынка ──────────────────────────────────── */
 let MARKET = null, MKT_HIT = null;
 fetch("market.json").then(r => r.ok ? r.json() : null)
@@ -874,6 +984,11 @@ function fillLot(L){
      догадки даём ссылку на живые объявления. */
   if (L.est_retail) $("ref").value = Math.round(L.est_retail*.75/500)*500;
   setZones(zonesFromDamage(L), false);   // подушки по карточке не определить
+  $("ai-btn").disabled = false;
+  $("ai-out").hidden = true;
+  $("ai-note").className = "ai-note";
+  $("ai-note").textContent = `Claude посмотрит ${(L.photos||[]).length} снимков и уточнит ` +
+    `смету: подушки, что реально помято, видно ли силовую. Около трёх минут.`;
   showMarket(L);
 
   $("lot-title").innerHTML =
@@ -955,6 +1070,7 @@ try{
 }catch(e){}
 
 IDS.forEach(k=>{ $(k).addEventListener("input",render); $(k).addEventListener("change",render); });
+$("ai-btn").addEventListener("click", analyzePhotos);
 $("rep-presets").addEventListener("click", e => {
   const b = e.target.closest("button"); if (b) presetRepair(b.dataset.p);
 });
