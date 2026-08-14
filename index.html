@@ -539,8 +539,16 @@ python serve.py</pre></div>
             <input type="number" autocomplete="off" id="fees" step="50" value="1300"></div>
           <div class="field"><label for="freight">Фрахт до Украины<span class="in-base">в базе</span></label>
             <input type="number" autocomplete="off" id="freight" step="50" value="2900"></div>
-          <div class="field"><label for="broker">Сертификация, брокер<span class="in-base out-base">вне базы</span></label>
-            <input type="number" autocomplete="off" id="broker" step="50" value="500"></div>
+          <div class="field"><label for="transfer">Перевод денег на аукцион<span class="in-base out-base">вне базы</span></label>
+            <input type="number" autocomplete="off" id="transfer" step="25" value="350"></div>
+          <div class="field"><label for="delivery">Доставка по Украине<span class="in-base out-base">вне базы</span>
+              <span class="hint">от Львова — этот кусок пути в базу не идёт</span></label>
+            <input type="number" autocomplete="off" id="delivery" step="50" value="400"></div>
+          <div class="field"><label for="broker">Брокер, сертификат<span class="in-base out-base">вне базы</span></label>
+            <input type="number" autocomplete="off" id="broker" step="50" value="200"></div>
+          <div class="field"><label for="regfee">Постановка на учёт, ₴<span class="in-base out-base">вне базы</span>
+              <span class="hint" id="regfee-usd">в гривне — считается по курсу</span></label>
+            <input type="number" autocomplete="off" id="regfee" step="500" value="7000"></div>
           <div class="field"><label for="agent">Посредник<span class="in-base out-base">вне базы</span></label>
             <input type="number" autocomplete="off" id="agent" step="50" value="500"></div>
           <div class="field"><label for="repair">Ремонт в Украине<span class="in-base out-base">вне базы</span>
@@ -663,7 +671,8 @@ python serve.py</pre></div>
 "use strict";
 const $ = id => document.getElementById(id);
 const IDS = ["usd","eur","pm","b1","b2","b3","year","vol","kwh","fuel","origin","autofee",
-             "fees","freight","broker","agent","repair","sale","margin","ref","age1"];
+             "fees","freight","broker","agent","repair","sale","margin","ref","age1",
+             "transfer","delivery","regfee"];
 let CUR = "usd";
 
 const fmt = (v,d=2) => (isFinite(v)?v:0).toLocaleString("ru-RU",
@@ -721,8 +730,15 @@ function calc(bid){
   const duty = cv * (+$("origin").value);
   const exE  = exciseEUR(), exU = exE * e2u;
   const vat  = .20 * (cv + duty + exU);
+  /* Пенсионный сбор берётся со стоимости автомобиля БЕЗ НДС — то есть с
+     таможенной стоимости, как она стоит в декларации. Ни пошлина, ни акциз,
+     ни НДС в его базу не входят. */
   const pR   = pensionRate(cv * rU), pens = cv * pR;
-  const other= (+$("broker").value||0) + (+$("agent").value||0);
+  /* Всё, что вне таможенной базы. Постановка на учёт — единственная статья
+     в гривне: это украинский сбор, он не пересчитывается из долларов. */
+  const other= (+$("broker").value||0) + (+$("agent").value||0) +
+               (+$("transfer").value||0) + (+$("delivery").value||0) +
+               (+$("regfee").value||0) / rU;
   const taxes= duty + vat + exU;
   const total= cv + taxes + pens + other;
   return {bid,fees,fr,cv,duty,exE,exU,vat,pR,pens,other,taxes,total,
@@ -734,6 +750,8 @@ const CELL = (v,cls="") => `<td class="n ${cls}">${v}</td>`;
 function render(){
   $("kwh-field").hidden = $("fuel").value !== "ev";
   $("fee-field").hidden = $("autofee").checked;
+  $("regfee-usd").textContent =
+    "≈ $" + fmt((+$("regfee").value||0) / (+$("usd").value||1), 0) + " по текущему курсу";
 
   const S = [+$("b1").value||0, +$("b2").value||0, +$("b3").value||0].map(calc);
   const sale = +$("sale").value||0;
@@ -760,7 +778,11 @@ function render(){
   R.push(`<tr class="pad"><td>Пенсионный сбор <span class="tag">при регистрации</span></td>` +
     S.map(s => `<td class="n">${money(s.pens)}<span class="pill ${s.pR>minR?"hot":""}">${(s.pR*100).toFixed(0)}%</span></td>`).join("") + "</tr>");
 
-  R.push(line("Сертификация, брокер","вне базы",()=>+$("broker").value||0));
+  R.push(line("Перевод денег на аукцион","вне базы",()=>+$("transfer").value||0));
+  R.push(line("Доставка по Украине","вне базы",()=>+$("delivery").value||0));
+  R.push(line("Брокер, сертификат","вне базы",()=>+$("broker").value||0));
+  R.push(line("Постановка на учёт",`₴${fmt(+$("regfee").value||0,0)}`,
+              ()=>(+$("regfee").value||0)/rU));
   R.push(line("Посредник","вне базы",()=>+$("agent").value||0));
   R.push(line("Всего до ремонта","",s=>s.total,"grand"));
   R.push(line("Ремонт","вне базы",()=>+$("repair").value||0,"pad"));
