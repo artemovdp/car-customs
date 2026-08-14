@@ -24,7 +24,7 @@ api.trycloudflare.com не проходит — домен режут из-за 
 * Ключ уходит дальше, чем его дают. Смена — удалить `.guest-key` и
   перезапустить сервер; все старые ссылки сразу умрут.
 """
-import re, sys, socket, shutil, pathlib, argparse, threading, subprocess
+import re, sys, time, socket, shutil, pathlib, argparse, threading, subprocess
 
 ROOT = pathlib.Path(__file__).parent
 KEY_FILE = ROOT / ".guest-key"   # наружу раздаём гостевой, не свой
@@ -34,6 +34,7 @@ PORT = 8731
 # частые перезапуски: пишет «too many tunnel starts» и висит. Без таймера
 # перебор на таком канале застревает навсегда.
 FIND_TIMEOUT = 40
+RETRY_WAIT = 90     # пауза перед новым кругом, когда не поднялся никто
 
 # Ключи ssh чужих серверов не проверяем и в known_hosts не пишем: адреса
 # одноразовые, а любой интерактивный вопрос повесит скрипт намертво.
@@ -47,7 +48,8 @@ PROVIDERS = {
         "cmd":   lambda: ["ssh", *SSH_Q, f"-R80:127.0.0.1:{PORT}", "serveo.net"],
         # выдаёт адрес на serveousercontent.com, а не на serveo.net
         "url":   re.compile(r"https://[\w.-]+\.(?:serveousercontent\.com|serveo\.net)"),
-        "note":  "гостю один раз покажет страницу-предупреждение",
+        "note":  "гостю: нажать Continue, потом вставить ключ из ссылки —\n"
+                 "         serveo срезает его на своей странице-предупреждении",
     },
     "pinggy": {
         "probe": ("a.pinggy.io", 443),
@@ -73,7 +75,8 @@ PROVIDERS = {
         "need":  "npx",
         "cmd":   lambda: ["npx", "--yes", "localtunnel", "--port", str(PORT)],
         "url":   re.compile(r"https://[\w-]+\.loca\.lt"),
-        "note":  "гостю покажет страницу-предупреждение перед входом",
+        "note":  "гостю: вписать IP, он написан на той же странице —\n"
+                 "         зато ключ из ссылки не теряется",
     },
 }
 ORDER = ["serveo", "pinggy", "cloudflare", "localtunnel"]
@@ -145,6 +148,7 @@ def run(name, key):
                 print(f"  {m.group(0)}/?k={key}")
                 print("─" * 72)
                 print(f"  канал {name} — {p['note']}")
+                print("  Оборвётся — подниму заново сам, ссылка при этом сменится.")
                 print("  Работает, пока открыто это окно и включён компьютер.")
                 print("  Разбор фотографий у них идёт с ТВОЕЙ подписки Claude,")
                 print("  окно Chromium при загрузке лота откроется на ТВОЁМ экране.")
@@ -157,11 +161,13 @@ def run(name, key):
     except KeyboardInterrupt:
         print("\nтуннель закрыт, снаружи больше не видно")
         proc.terminate()
-        return True
+        return "stop"
     finally:
         timer.cancel()
     if not state["shown"]:
         print(f"   {name} отвалился, не дав ссылку\n", flush=True)
+    else:
+        print(f"\n   {name}: связь оборвалась, поднимаю заново\n", flush=True)
     return state["shown"]
 
 
@@ -183,14 +189,29 @@ def main():
     if not server_alive(key):
         sys.exit(f"Локальный сервер не отвечает на {PORT}. Запусти start.bat.")
 
-    for name in ([a.via] if a.via else ORDER):
-        ok, why = ready(name)
-        if not ok:
-            print(f"→ {name}: пропускаю — {why}", flush=True)
-            continue
-        if run(name, key):
+    # Туннель рвётся сам по себе: провайдер отвалился, ноут заснул, serveo
+    # обиделся на частые перезапуски. Поднимаем заново, пока не остановят —
+    # иначе ссылка тихо умирает и об этом узнаёшь от того, кому её дал.
+    order = [a.via] if a.via else ORDER
+    while True:
+        worked = False
+        for name in order:
+            ok, why = ready(name)
+            if not ok:
+                print(f"→ {name}: пропускаю — {why}", flush=True)
+                continue
+            if run(name, key) == "stop":
+                return
+            worked = True
+        # serveo после серии перезапусков отвечает «too many tunnel starts»
+        # и отходит за минуту-другую, поэтому просто ждём и пробуем снова.
+        pause = 20 if worked else RETRY_WAIT
+        print(f"\n… ни один канал не держится, жду {pause} с и пробую снова "
+              f"(Ctrl+C — выйти)\n", flush=True)
+        try:
+            time.sleep(pause)
+        except KeyboardInterrupt:
             return
-    sys.exit("Ни один канал не поднялся. Посмотри `python share.py --list`.")
 
 
 if __name__ == "__main__":

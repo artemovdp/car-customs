@@ -17,3 +17,7 @@ journal.json
 .access-key
 
 .guest-key
+
+# вывод туннеля
+share*.out
+share*.err
