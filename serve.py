@@ -52,20 +52,25 @@ NBU = "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?valcode={}&j
 # что туннель работает на этой же машине. Значит «свой или чужой» по адресу
 # не отличить, и ключ нужен всем, включая меня. Свой браузер получает его
 # один раз в cookie и больше о нём не думает.
-KEY_FILE = ROOT / ".access-key"
+# Ключей два. Свой открывает всё, гостевой — всё кроме журнала: там цены
+# покупки, ремонта и прибыль, и чужому там делать нечего. Раздаётся наружу
+# (share.py) только гостевой.
+KEY_FILE   = ROOT / ".access-key"
+GUEST_FILE = ROOT / ".guest-key"
 
 
-def access_key():
-    if KEY_FILE.exists():
-        k = KEY_FILE.read_text(encoding="utf-8").strip()
+def read_or_make(path):
+    if path.exists():
+        k = path.read_text(encoding="utf-8").strip()
         if k:
             return k
     k = secrets.token_urlsafe(12)
-    KEY_FILE.write_text(k, encoding="utf-8")
+    path.write_text(k, encoding="utf-8")
     return k
 
 
-KEY = access_key()
+KEY   = read_or_make(KEY_FILE)
+GUEST = read_or_make(GUEST_FILE)
 
 # Наружу отдаём только то, из чего состоит калькулятор. Всё остальное в папке —
 # журнал сделок с ценами покупки, рабочие заметки, лог, исходники — не отдаём
@@ -147,29 +152,56 @@ class Handler(SimpleHTTPRequestHandler):
             log(fmt % args)
 
     # ── ключ ─────────────────────────────────────────────────────────────
-    def authed(self, query):
+    def level(self, query):
+        """"owner", "guest" или None."""
         given = urllib.parse.parse_qs(query).get("k", [""])[0]
-        if given and secrets.compare_digest(given, KEY):
-            self._set_cookie = True      # дальше ходит без ключа в ссылке
-            return True
-        m = re.search(r"(?:^|;\s*)ck=([^;]+)", self.headers.get("Cookie") or "")
-        return bool(m and secrets.compare_digest(m.group(1), KEY))
+        if not given:
+            m = re.search(r"(?:^|;\s*)ck=([^;]+)", self.headers.get("Cookie") or "")
+            given = m.group(1) if m else ""
+        else:
+            self._cookie_val = given     # дальше ходит без ключа в ссылке
+        if not given:
+            return None
+        if secrets.compare_digest(given, KEY):
+            return "owner"
+        if secrets.compare_digest(given, GUEST):
+            return "guest"
+        return None
+
+    def authed(self, query):
+        self._level = self.level(query)
+        return self._level is not None
 
     def end_headers(self):
-        if getattr(self, "_set_cookie", False):
+        v = getattr(self, "_cookie_val", None)
+        if v:
             self.send_header("Set-Cookie",
-                             f"ck={KEY}; Path=/; Max-Age=2592000; SameSite=Lax")
-            self._set_cookie = False
+                             f"ck={v}; Path=/; Max-Age=2592000; SameSite=Lax")
+            self._cookie_val = None
         super().end_headers()
 
     def deny(self):
+        # Форма, а не просто отказ: бесплатные туннели показывают гостю свою
+        # страницу-предупреждение и на переходе с неё срезают query-строку —
+        # ключ из ссылки теряется, и человек упирается в тупик. Здесь он
+        # вставляет ключ руками, форма уходит тем же ?k=, дальше живёт cookie.
         body = ("<!doctype html><meta charset=utf-8>"
                 "<title>Нужен ключ</title>"
-                "<style>body{font:15px/1.6 system-ui;max-width:34em;margin:14vh auto;"
-                "padding:0 20px;color:#243}</style>"
+                "<style>body{font:15px/1.6 system-ui,sans-serif;max-width:30em;"
+                "margin:14vh auto;padding:0 20px;color:#20302c}"
+                "h1{font-size:20px;margin:0 0 10px}p{color:#5b6b67}"
+                "form{display:flex;gap:8px;margin-top:18px}"
+                "input{flex:1;padding:10px 12px;font:15px monospace;"
+                "border:1px solid #c3cfcb;border-radius:6px}"
+                "button{padding:10px 18px;border:0;border-radius:6px;"
+                "background:#0b6a68;color:#fff;font-size:15px;cursor:pointer}"
+                "</style>"
                 "<h1>Нужен ключ доступа</h1>"
-                "<p>Ссылка должна заканчиваться на <code>?k=…</code>. "
-                "Попроси её у того, кто дал вам эту страницу.</p>"
+                "<p>Вставь ключ из ссылки — то, что идёт после <code>?k=</code>. "
+                "Спроси его у того, кто дал тебе эту страницу.</p>"
+                "<form method=get action=/>"
+                "<input name=k autofocus autocomplete=off placeholder=\"ключ\">"
+                "<button>Войти</button></form>"
                 ).encode("utf-8")
         self.send_response(403)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -262,6 +294,10 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         if parsed.path == "/api/journal":
+            # журнал — только свой ключ: там цены покупки и прибыль
+            if self._level != "owner":
+                self._json(200, {"ok": True, "journal": {"lots": {}}})
+                return
             try:
                 self._json(200, {"ok": True, "journal": journal_load()})
             except Exception as e:
@@ -282,6 +318,9 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if urllib.parse.urlparse(self.path).path != "/api/journal":
             self._json(404, {"ok": False, "error": "нет такого адреса"})
+            return
+        if self._level != "owner":
+            self._json(403, {"ok": False, "error": "журнал доступен только владельцу"})
             return
         try:
             n = int(self.headers.get("Content-Length") or 0)
