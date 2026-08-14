@@ -147,9 +147,11 @@ def normalize(text: str, lot: str, url: str, images: list):
         "runs_drives":       "run and drive" in lowtext,
         "engine_starts":     "engine starts" in lowtext,
         "trans_engages":     "transmission engages" in lowtext,
-        "sale_date":         after(text, "Sale date"),
-        "location":          after(text, "Location"),
-        "seller":            after(text, "Seller"),
+        # локация и дата — строго одна строка: следом идут «1/14» и «Watchlist»
+        # из галереи, они не оканчиваются двоеточием и иначе прилипают к значению
+        "sale_date":         after(text, "Sale date", 1),
+        "location":          after(text, "Location", 1),
+        "seller":            after(text, "Seller", 1),
         "photos":            images,
     }
 
