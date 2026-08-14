@@ -16,6 +16,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import requests
 from lot import parse_url, LOTS_DIR
 from analyze import analyze
+from journal import put_prediction, load as journal_load
 
 ROOT = pathlib.Path(__file__).parent
 PORT = 8731
@@ -54,6 +55,21 @@ def nbu_rates():
         row = r.json()[0]
         out[code] = {"rate": row["rate"], "date": row["exchangedate"]}
     return out
+
+
+def cached_lot(lot):
+    """Отдаёт уже скачанный лот с диска, не поднимая браузер."""
+    f = LOTS_DIR / lot / "lot.json"
+    if not f.exists():
+        return 404, {"ok": False,
+                     "error": f"Лот {lot} ещё не качали — вставь ссылку целиком"}
+    data = json.loads(f.read_text(encoding="utf-8"))
+    data["photo_dir"] = f"/lots/{lot}"
+    a = LOTS_DIR / lot / "analysis.json"
+    if a.exists():
+        try: data["analysis"] = json.loads(a.read_text(encoding="utf-8"))
+        except Exception: pass
+    return 200, {"ok": True, "lot": data, "cached": True}
 
 
 def run_lot(url):
@@ -137,7 +153,15 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         if parsed.path == "/api/lot":
-            url = urllib.parse.parse_qs(parsed.query).get("url", [""])[0].strip()
+            q   = urllib.parse.parse_qs(parsed.query)
+            url = q.get("url", [""])[0].strip()
+            num = q.get("lot", [""])[0].strip()
+            if num and not url:                       # уже скачанный — с диска
+                if not re.fullmatch(r"\d{6,10}", num):
+                    self._json(400, {"ok": False, "error": "Некорректный номер лота"})
+                else:
+                    self._json(*cached_lot(num))
+                return
             if not url:
                 self._json(400, {"ok": False, "error": "Не передана ссылка на лот"})
                 return
@@ -151,14 +175,50 @@ class Handler(SimpleHTTPRequestHandler):
                 _browser_lock.release()
             return
 
+        if parsed.path == "/api/journal":
+            try:
+                self._json(200, {"ok": True, "journal": journal_load()})
+            except Exception as e:
+                self._json(500, {"ok": False, "error": str(e)[:300]})
+            return
+
         if parsed.path == "/":
             self.path = "/index.html"
         return super().do_GET()
 
+    def do_POST(self):
+        if urllib.parse.urlparse(self.path).path != "/api/journal":
+            self._json(404, {"ok": False, "error": "нет такого адреса"})
+            return
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            if n <= 0 or n > 64_000:
+                raise ValueError("пустое или слишком большое тело запроса")
+            data = json.loads(self.rfile.read(n).decode("utf-8"))
+            lot  = str(data.get("lot") or "").strip()
+            if not re.fullmatch(r"\d{6,10}", lot):
+                raise ValueError("некорректный номер лота")
+            e = put_prediction(lot, data)
+            log(f"журнал: записан прогноз по лоту {lot}")
+            self._json(200, {"ok": True, "entry": e})
+        except Exception as e:
+            self._json(400, {"ok": False, "error": str(e)[:300]})
+
 
 def main():
     LOTS_DIR.mkdir(exist_ok=True)
-    srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    try:
+        srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    except OSError as e:
+        # Запуск вторым экземпляром выглядит успешным: окна нет, ошибка молчит,
+        # а страницу продолжает отдавать первый — со старым кодом. Отсюда потом
+        # берутся «правки не применились». Пишем в лог, он и есть единственный
+        # способ это заметить.
+        log(f"НЕ ЗАПУСТИЛСЯ: порт {PORT} занят ({e}). "
+            f"Работает прежний сервер — останови его и запусти заново.")
+        print(f"Порт {PORT} уже занят: сервер, скорее всего, уже запущен.")
+        return
+    log(f"старт, порт {PORT}")
     print("─" * 58)
     print(f"  Калькулятор растаможки →  http://localhost:{PORT}")
     print(f"  Папка с лотами         →  {LOTS_DIR}")

@@ -189,6 +189,21 @@ details.local > summary:hover{color:var(--accent);}
 .rep-row .rng{display:block;font-family:var(--f-mono);font-size:10px;color:var(--muted);margin-top:1px;}
 .rep-row input[type=number]{height:29px;padding:5px 8px;text-align:right;font-size:13px;}
 .rep-row.off label,.rep-row.off .rng{opacity:.4;}
+/* вилка, снятая по конкретной модели, а не общая — видно, чему верить больше */
+.rep-row .rng.own{color:var(--accent);}
+.rep-src{margin:5px 0 0;font-family:var(--f-mono);font-size:10px;color:var(--muted);
+  letter-spacing:.02em;}
+.jr{padding:12px 16px 14px;border-top:1px solid var(--line);}
+.jr-note{margin:8px 0 0;font-size:11.5px;line-height:1.5;color:var(--muted);}
+.jr-note.ok{color:var(--accent);}
+.jr-note.err{color:var(--signal);}
+.jr-list{margin-top:10px;border-top:1px solid var(--line);padding-top:8px;
+  display:flex;flex-direction:column;gap:5px;}
+.jr-row{display:flex;justify-content:space-between;gap:10px;font-size:11.5px;
+  font-family:var(--f-mono);color:var(--muted);}
+.jr-row b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;}
+.jr-row .miss{color:var(--signal);}
+.jr-row .win{color:var(--accent);}
 .rep-row.off input[type=number]{opacity:.4;}
 .rep-total{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
            padding:11px 16px;border-top:1px solid var(--line-soft);background:var(--accent-wash);}
@@ -472,6 +487,8 @@ python serve.py</pre></div>
           <div class="mkt" id="mkt" hidden>
             <div class="mkt-h">Рынок Украины <span id="mkt-src"></span></div>
             <div class="mkt-row"><span id="mkt-lbl">Медиана рынка</span><b id="mkt-med">—</b></div>
+            <div class="mkt-row" id="mkt-km-row" hidden>
+              <span id="mkt-km-lbl">Поправка на пробег</span><b id="mkt-km">—</b></div>
             <div class="mkt-row"><span>Половина рынка в вилке</span><b id="mkt-iqr">—</b></div>
             <div class="mkt-cut">
               <label for="cut" id="mkt-cut-lbl">Скидка за аварийную историю</label>
@@ -503,6 +520,7 @@ python serve.py</pre></div>
         <div class="rep-total">
           <span>Итого по смете</span><b id="rep-sum">—</b>
         </div>
+        <p class="rep-src" id="rep-src"></p>
         <p class="rep-note" id="rep-note">Позиции включаются по полям повреждений
           из карточки лота. Сними галочку с того, что не пострадало, и поправь цены
           под своего поставщика. <b>Стапель, верхнюю панель и радар</b> оставляй
@@ -524,6 +542,13 @@ python serve.py</pre></div>
           <span class="k">Максимальная ставка:</span>
           <span class="v" id="maxbid">—</span>
           <span class="sub" id="maxbid-sub">—</span>
+        </div>
+        <div class="jr">
+          <button class="btn" type="button" id="jr-btn" disabled>Записать в журнал</button>
+          <p class="jr-note" id="jr-note">Запиши прогноз — потом впишешь, за сколько
+            лот реально ушёл, и станет видно, попадают ли потолки в рынок. Работает
+            и для лотов, которые не покупал: цена ухода сама по себе учит.</p>
+          <div class="jr-list" id="jr-list" hidden></div>
         </div>
       </section>
 
@@ -667,12 +692,14 @@ function render(){
   const budget = sale - (+$("repair").value||0) - (+$("margin").value||0);
   const out = $("maxbid"), sub = $("maxbid-sub");
   if (budget <= calc(0).total){
+    MAXBID = 0;
     out.textContent = "не заходить"; out.classList.add("bad");
     sub.textContent = "Цена продажи не покрывает даже налоги и расходы при нулевой ставке. Сделки нет.";
   } else {
     let lo = 0, hi = 500000;
     for (let i=0;i<60;i++){const mid=(lo+hi)/2; if (calc(mid).total>budget) hi=mid; else lo=mid;}
     const mb = Math.floor(lo/50)*50, c = calc(mb);
+    MAXBID = mb;
     out.textContent = money(mb); out.classList.remove("bad");
     const over = S.map((s,i)=>s.bid>mb ? ["низкая","средняя","высокая"][i] : null).filter(Boolean);
     sub.innerHTML = `Себестоимость с ремонтом на этой ставке — <b>${money(c.withRepair)}</b>, маржа ${money(+$("margin").value||0)}. ` +
@@ -730,18 +757,82 @@ const REPAIR = [
   ["any",   "Покраска",                          500, 1000],
   ["any",   "Развал, диагностика, сброс ошибок", 150,  250],
 ];
+/* Прайс под конкретную машину. Вилки в REPAIR — «премиальный кроссовер
+   вообще», и на конкретной модели они врут в обе стороны: задний бампер на X3
+   стоит вдвое дешевле общей вилки, а зеркало с камерой и памятью — дороже.
+   Здесь цены б/у оригинала с украинских разборок, снятые по объявлениям.
+   Позиций, которых я не мерил, тут нет — они остаются на общей вилке. */
+const PRICES = {
+  "bmw/x3": {
+    src: "OLX, б/у оригинал G01, август 2026",
+    rows: {
+      "Бампер передний":        [200,  650],
+      "Усилитель бампера":      [ 90,  350],
+      "Фара":                   [450, 1000],
+      "Крыло переднее":         [150,  450],
+      "Капот":                  [200,  800],
+      "Решётка радиатора":      [ 50,  250],
+      "Радиатор":               [  0,  400],
+      "Верхняя панель передка": [  0,  350],
+      "Подвеска передняя":      [200,  900],
+      "Диск и шина":            [180,  400],
+      "Бампер задний":          [100,  400],
+      "Фонарь задний":          [100,  350],
+      "Дверь багажника":        [300,  900],
+      "Подвеска задняя":        [150,  700],
+      "Дверь":                  [200,  650],
+      "Крыло заднее":           [400, 1100],
+      "Зеркало":                [100,  600],
+      "Подушки и блок SRS":     [500, 1800],
+    },
+  },
+};
+
+/* Действующие вилки: сюда ложится либо общая, либо модельная цена. */
+let RANGE = REPAIR.map(([, , lo, hi]) => [lo, hi]);
 const MID = (lo, hi) => Math.round((lo + hi) / 2 / 50) * 50;
 
 function buildRepair(){
-  $("rep-rows").innerHTML = REPAIR.map(([zone,name,lo,hi], i) =>
+  $("rep-rows").innerHTML = REPAIR.map(([zone,name], i) =>
     `<div class="rep-row" data-zone="${zone}" data-i="${i}">
        <input type="checkbox" id="rc${i}">
-       <label for="rc${i}">${esc(name)}<span class="rng">${lo} – ${hi}</span></label>
-       <input type="number" id="rp${i}" step="50" value="${MID(lo,hi)}">
+       <label for="rc${i}">${esc(name)}<span class="rng" id="rr${i}"></span></label>
+       <input type="number" id="rp${i}" step="50">
      </div>`).join("");
+  applyPrices(null);
   $("rep-rows").addEventListener("input", sumRepair);
   $("rep-rows").addEventListener("change", sumRepair);
   setZones(["front"], false);          // пока лот не загружен — обычный передний удар
+}
+
+/* Подставляет вилки под модель и заново выставляет середины.
+   Зовётся на загрузке лота, поэтому затирать введённое руками не страшно —
+   новый лот означает новую смету. */
+function applyPrices(modelKey){
+  const P = (modelKey && PRICES[modelKey]) || null;
+  /* Строка сметы называется подробнее ключа прайса («Бампер передний, кожух»),
+     поэтому ищем самый длинный подходящий ключ: иначе «Дверь» перехватила бы
+     «Дверь багажника». */
+  const own4 = name => {
+    if (!P) return null;
+    let best = null;
+    for (const k in P.rows)
+      if (name.startsWith(k) && (!best || k.length > best.length)) best = k;
+    return best ? P.rows[best] : null;
+  };
+  let hit = 0;
+  REPAIR.forEach(([, name, lo, hi], i) => {
+    const own = own4(name);
+    if (own) hit++;
+    RANGE[i] = own || [lo, hi];
+    $("rr"+i).textContent = RANGE[i][0] + " – " + RANGE[i][1];
+    $("rr"+i).classList.toggle("own", !!own);
+    $("rp"+i).value = MID(RANGE[i][0], RANGE[i][1]);
+  });
+  $("rep-src").textContent = hit
+    ? `${hit} позиций по прайсу: ${P.src}`
+    : "Вилки общие для премиального кроссовера — модели нет в прайсе.";
+  sumRepair();
 }
 
 /* Включает позиции нужных зон и прячет заведомо лишние, чтобы список
@@ -786,7 +877,7 @@ function sumRepair(){
 }
 
 function presetRepair(which){
-  REPAIR.forEach(([, , lo, hi], i) => { $("rp"+i).value = which === "min" ? lo : hi; });
+  RANGE.forEach(([lo, hi], i) => { $("rp"+i).value = which === "min" ? lo : hi; });
   sumRepair();
 }
 
@@ -831,22 +922,40 @@ async function analyzePhotos(){
 }
 
 function applyAnalysis(a){
+  LAST_ANALYSIS = a;
   const zones = (a.zones && a.zones.length) ? a.zones : ["front"];
   setZones(zones, a.airbags === "deployed");
 
-  /* Ошибки разбора несимметричны по цене. Лишняя галочка стоит минуты на её
-     снятие, пропущенная деталь — реальных денег на ремонте. Проверка на живом
-     лоте это подтвердила: разные запуски по одним снимкам то видели разбитую
-     фару, то объявляли её целой.
+  /* Три корзины, а не две. Зона включает все свои позиции разом — это защита
+     от занижения, пока о машине ничего не известно. Но когда разбор прямо
+     говорит «фара цела», держать её в смете уже не осторожность, а враньё:
+     на лоте с оторванным бампером и вмятиной в четверти так набегало $8 600
+     вместо реальных двух с половиной тысяч.
 
-     Поэтому применяем только то, в чём разбор устойчив: зоны кузова (их он
-     определил одинаково и верно) и список пострадавшего. Слово «цело» по
-     отдельной детали галочку не снимает — оно уходит в отчёт, решать человеку. */
+     Поэтому: `damaged` — ставим галочку, `intact` — снимаем, а деталь, которую
+     разбор не назвал ни там ни там, остаётся включённой. Именно в этой корзине
+     сидит неуверенность, и промолчать о детали модель обучена (в промпте прямо
+     сказано не гадать) — на живом лоте она так и сделала с порогом. */
   const dmg = new Set(a.damaged || []);
+  const ok  = new Set(a.intact  || []);
+  let off = 0;
   REPAIR.forEach(([, name], i) => {
     const p = partOfRow(name);
     if (p && dmg.has(p)) {
       $("rc"+i).closest(".rep-row").hidden = false;
+      $("rc"+i).checked = true;
+    } else if (p && ok.has(p) && $("rc"+i).checked) {
+      $("rc"+i).checked = false;
+      off++;
+    }
+    /* Задетая силовая — это не «правка геометрии» за пару сотен, а промеры,
+       вытяжка на стапеле и сварка. Раньше разбор говорил «задета», а на смете
+       это не отражалось никак. */
+    if (a.structure === "visible_damaged" && name.startsWith("Стапель")){
+      RANGE[i] = [800, 2200];
+      $("rr"+i).textContent = "800 – 2200";
+      $("rr"+i).classList.add("own");
+      $("rp"+i).value = 1500;
       $("rc"+i).checked = true;
     }
   });
@@ -865,15 +974,91 @@ function applyAnalysis(a){
     `<div class="ai-line"><span>Помято</span><div>${esc((a.damaged||[]).join(", ")||"—")}</div></div>` +
     `<div class="ai-line"><span>Считает целым</span><div class="dimmed">` +
       `${esc((a.intact||[]).join(", ")||"—")}` +
-      `<em> — галочки не снимаю: на этом разбор ошибается чаще всего, ` +
-      `снимай сам, если согласен</em></div></div>` +
+      (off ? `<em> — снял ${off} ${off===1?"галочку":"галочек"} из зоны. ` +
+             `Именно тут разбор ошибается чаще всего: пробегись глазами по ` +
+             `снятому, прежде чем верить сумме</em>`
+           : `<em> — в смете этих позиций и не было</em>`) +
+      `</div></div>` +
     (a.notes && a.notes.length
       ? `<ul class="ai-notes">${a.notes.map(n=>`<li>${esc(n)}</li>`).join("")}</ul>` : "") +
-    `<div class="ai-cost">${esc(a.photos||0)} фото · $${esc(a.cost_usd||0)} · ${esc(a.model||"")}</div>`;
+    `<div class="ai-cost">${esc(a.photos||0)} фото · ${esc(a.model||"")} · ` +
+      `эквивалент $${esc(a.cost_usd||0)} по подписке, счёта не будет</div>`;
+}
+
+/* ─── журнал: прогноз против того, что вышло ──────────────────────── */
+/* Пока факты не записаны, скидка от медианы, вилки в смете и потолок ставки
+   остаются догадками, и поправить их нечем. Прогноз кладём отсюда, факты
+   дописываются командой `python journal.py fact <лот> …`. */
+let MAXBID = 0, LAST_ANALYSIS = null;
+
+async function saveJournal(){
+  const L = LAST_LOT;
+  const note = $("jr-note"), btn = $("jr-btn");
+  if (!L || !L.lot){
+    note.className = "jr-note err"; note.textContent = "Сначала загрузи лот.";
+    return;
+  }
+  btn.disabled = true;
+  try{
+    const r = await fetch("/api/journal", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        lot: L.lot, title: L.title, year: L.year, km: L.odometer_km,
+        vin: L.vin, url: L.url,
+        repair: +$("repair").value || 0,
+        sale:   +$("sale").value   || 0,
+        ceiling: MAXBID,
+        market_median: MKT_BASE ? MKT_BASE.median + MKT_KM : null,
+        market_n:      MKT_BASE ? MKT_BASE.n : null,
+        cut: cutValue(),
+        bid: L.current_bid || null,
+        structure: LAST_ANALYSIS ? LAST_ANALYSIS.structure : null,
+        damaged:   LAST_ANALYSIS ? LAST_ANALYSIS.damaged   : null,
+      }),
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || "не записалось");
+    note.className = "jr-note ok";
+    note.innerHTML = `Записан прогноз по лоту ${esc(L.lot)}: потолок ` +
+      `<b>${dol(MAXBID)}</b>. Когда торги пройдут — ` +
+      `<code>python journal.py auction ${esc(L.lot)} --sold СУММА</code>`;
+    loadJournal();
+  }catch(e){
+    note.className = "jr-note err";
+    note.textContent = e instanceof TypeError
+      ? "Журнал работает только с локальным сервером — запусти start.bat."
+      : "Не записалось: " + e.message;
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+/* в тесных строках журнала копейки только мешают */
+const dol = v => "$" + fmt(Math.round(v || 0), 0);
+
+async function loadJournal(){
+  try{
+    const r = await fetch("/api/journal");
+    const j = await r.json();
+    const rows = Object.values((j.journal || {}).lots || {});
+    if (!rows.length) return;
+    rows.sort((a,b) => String(b.saved||"").localeCompare(String(a.saved||"")));
+    $("jr-list").hidden = false;
+    $("jr-list").innerHTML = rows.slice(0, 8).map(e => {
+      const p = e.predicted || {}, au = e.auction || {}, ac = e.actual || {};
+      let tail = "ждём торгов";
+      if (ac.sold)      tail = `<b class="win">продал ${dol(ac.sold)}</b>`;
+      else if (au.sold) tail = au.sold > (p.ceiling||0)
+        ? `<b class="miss">ушёл ${dol(au.sold)} — мимо</b>`
+        : `<b class="win">ушёл ${dol(au.sold)} — влезал</b>`;
+      return `<div class="jr-row"><span>${esc(String(e.title||e.lot).slice(0,26))}` +
+             `</span><span>потолок <b>${dol(p.ceiling)}</b> · ${tail}</span></div>`;
+    }).join("");
+  }catch(e){ /* нет сервера — журнала просто не будет */ }
 }
 
 /* ─── база цен украинского рынка ──────────────────────────────────── */
-let MARKET = null, MKT_HIT = null, MKT_BASE = null;
+let MARKET = null, MKT_HIT = null, MKT_BASE = null, MKT_KM = 0;
 /* ?v= обходит кеш: без него после пересбора базы страница неделю показывает
    старые медианы — и локально, и на GitHub Pages. */
 fetch("market.json?v=" + Date.now()).then(r => r.ok ? r.json() : null)
@@ -901,44 +1086,83 @@ function showMarket(L){
   MKT_HIT = (rec && y && rec.by_year[String(y)]) || null;
 
   if (MKT_HIT){
+    /* Шильдик мотора важен не меньше года: 30i и M40i одного года расходятся
+       на треть цены. Если объявлений именно с этим шильдиком набралось —
+       считаем по ним, иначе откатываемся на весь год. */
+    const bg  = badgeOf(L.title);
+    const bgR = bg && MKT_HIT.by_badge && MKT_HIT.by_badge[bg];
+    const src = bgR || MKT_HIT;
+
     /* За основу берём объявления с пометкой «Був в ДТП» — это прямой аналог
        отремонтированного пригона. Скидку к ним почти не применяем: она уже
        в цене. Если аварийных мало, откатываемся на целые и режем сильнее. */
-    const cr = MKT_HIT.crashed, cl = MKT_HIT.clean;
+    const cr = src.crashed, cl = src.clean;
     const useCrashed = cr && cr.n >= 5;
-    MKT_BASE = useCrashed ? cr : (cl && cl.n >= 3 ? cl : MKT_HIT);
+    MKT_BASE = useCrashed ? cr : (cl && cl.n >= 3 ? cl : src);
     if (!$("cut").dataset.touched) $("cut").value = useCrashed ? 10 : 25;
 
+    /* Поправка на пробег. Наклон посчитан по объявлениям этого же года
+       и уже сжат к общему — внутри года пробег объясняет мало. */
+    const slope = MKT_HIT.km_slope || rec.km_slope || 0;
+    const kmMed = MKT_BASE.km_median || MKT_HIT.km_median;
+    const dKm   = (L.odometer_km && kmMed) ? L.odometer_km - kmMed : 0;
+    MKT_KM = dKm ? Math.round(MKT_BASE.median * slope * dKm / 1000) : 0;
+
     box.hidden = false;
-    $("mkt-src").textContent = `${MKT_BASE.n} объявл. · ${y} · ${esc(rec.collected)}`;
+    $("mkt-src").textContent =
+      `${MKT_BASE.n} объявл. · ${bgR ? esc(bg) + " · " : ""}${y} · ${esc(rec.collected)}`;
     $("mkt-lbl").textContent = useCrashed ? "Медиана после ДТП" : "Медиана целых";
     $("mkt-med").textContent = "$" + fmt(MKT_BASE.median, 0);
     $("mkt-iqr").textContent = "$" + fmt(MKT_BASE.p25, 0) + " – $" + fmt(MKT_BASE.p75, 0);
     $("mkt-cut-lbl").textContent = useCrashed
       ? "Ещё скидка: торг и американский тайтл"
       : "Скидка за аварийную историю";
+    $("mkt-km-row").hidden = !MKT_KM;
+    if (MKT_KM){
+      const sign = dKm > 0 ? "+" : "−";
+      $("mkt-km-lbl").textContent =
+        `Пробег ${sign}${fmt(Math.abs(dKm)/1000, 0)} тыс. км к медиане`;
+      $("mkt-km").textContent = (MKT_KM < 0 ? "−$" : "+$") + fmt(Math.abs(MKT_KM), 0);
+    }
     renderCut();
     applyCut();          // цена продажи проставляется сразу, править можно после
 
     const other = useCrashed && cl && cl.n >= 3
-      ? ` Целых в этом году ${cl.n}, их медиана $${fmt(cl.median,0)}.` : "";
-    note.innerHTML =
+      ? ` Целых с этим шильдиком ${cl.n}, их медиана $${fmt(cl.median,0)}.` : "";
+    const bgNote = bg
+      ? (bgR ? `Сравнение идёт с <b>${esc(bg)}</b> того же года. `
+             : `Шильдик <b>${esc(bg)}</b> в базе за этот год не набрался — ` +
+               `в основе весь год вперемешку, от 20d до M40i. `)
+      : "";
+    note.innerHTML = bgNote +
       (useCrashed
         ? `За основу взяты объявления с пометкой <b>«Був в ДТП»</b> — это прямой аналог ` +
           `отремонтированного пригона, скидка за аварийность в их цене уже сидит.${other} `
-        : `Аварийных объявлений за этот год мало, поэтому основа — целые машины, ` +
+        : `Аварийных объявлений мало, поэтому основа — целые машины, ` +
           `и скидка нужна полная. `) +
       `Это <b>запрошенные</b> цены, а не цены сделок: реально продают на 5–10% ниже. ` +
       (MKT_BASE.n < 15 ? `<b>Выборка мелкая (${MKT_BASE.n}) — проверь глазами.</b> ` : "") + link;
   } else {
     box.hidden = true;
+    MKT_BASE = null; MKT_KM = 0;
     note.innerHTML = "Этой модели нет в собранной базе — рынок посмотри сам и поставь " +
       "цифру руками, вычтя скидку за аварийную историю (обычно <b>25–35%</b>).<br>" + link;
   }
 }
 
+/* «XDRIVE30I» → «30i». Шильдик BMW говорит о моторе больше, чем объём:
+   20d и 30i обе двухлитровые, а в цене расходятся на тысячи. */
+function badgeOf(title){
+  const s = String(title || "").toUpperCase();
+  const mp = s.match(/\bM\s?(\d{2})\s?([ID])\b/);
+  if (mp) return "M" + mp[1] + mp[2].toLowerCase();
+  const m = s.match(/(?:^|[\s-])(?:[SX]DRIVE)?(\d{2})([IEDX])\b/);
+  return m ? m[1] + m[2].toLowerCase() : null;
+}
+
 const cutValue = () => Math.min(90, Math.max(0, +$("cut").value || 0));
-const cutPrice = () => Math.round(MKT_BASE.median * (1 - cutValue()/100) / 100) * 100;
+const cutPrice = () =>
+  Math.round((MKT_BASE.median + MKT_KM) * (1 - cutValue()/100) / 100) * 100;
 
 function renderCut(){
   if (!MKT_BASE) return;
@@ -969,16 +1193,25 @@ async function loadLot(){
     return;
   }
 
+  /* голый номер — значит лот уже качали: читаем с диска, браузер не нужен */
+  const cached = /^\d{6,10}$/.test(url);
   btn.disabled = true; btn.textContent = "Гружу…";
   note.className = "note";
-  note.textContent = "Открываю Copart в настоящем браузере — 10–20 секунд.";
+  note.textContent = cached
+    ? "Беру сохранённый лот с диска."
+    : "Открываю Copart в настоящем браузере — 10–20 секунд.";
   try{
-    const r = await fetch("/api/lot?url=" + encodeURIComponent(url));
+    const r = await fetch("/api/lot?" + (cached ? "lot=" : "url=") +
+                          encodeURIComponent(url));
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || "неизвестная ошибка");
     fillLot(j.lot);
+    if (j.lot.analysis) applyAnalysis(j.lot.analysis);
     note.className = "note";
-    note.textContent = `Готово. Фото: ${j.lot.photos.length} шт. в lots/${j.lot.lot}/`;
+    note.textContent = j.cached
+      ? `Из кеша: ${j.lot.photos.length} фото` +
+        (j.lot.analysis ? ", разбор фото подставлен." : ".")
+      : `Готово. Фото: ${j.lot.photos.length} шт. в lots/${j.lot.lot}/`;
   }catch(e){
     if (e instanceof TypeError){        // до сервера не достучались вовсе
       goStandalone();
@@ -1009,9 +1242,16 @@ function fillLot(L){
      битого американца после ремонта в Украине она отношения не имеет. Вместо
      догадки даём ссылку на живые объявления. */
   if (L.est_retail) $("ref").value = Math.round(L.est_retail*.75/500)*500;
+
+  /* прайс — до setZones: тот считает сумму по уже проставленным ценам */
+  const words = String(L.title||"").replace(/^(19|20)\d{2}\s*/, "").trim().split(/\s+/);
+  applyPrices(words.slice(0,2).join("/").toLowerCase());
   setZones(zonesFromDamage(L), false);   // подушки по карточке не определить
   $("ai-btn").disabled = false;
+  $("jr-btn").disabled = false;
+  $("jr-note").className = "jr-note";
   $("ai-out").hidden = true;
+  LAST_ANALYSIS = null;
   $("ai-note").className = "ai-note";
   $("ai-note").textContent = `Claude посмотрит ${(L.photos||[]).length} снимков и уточнит ` +
     `смету: подушки, что реально помято, видно ли силовую. Около трёх минут.`;
@@ -1097,6 +1337,7 @@ try{
 
 IDS.forEach(k=>{ $(k).addEventListener("input",render); $(k).addEventListener("change",render); });
 $("ai-btn").addEventListener("click", analyzePhotos);
+$("jr-btn").addEventListener("click", saveJournal);
 $("rep-presets").addEventListener("click", e => {
   const b = e.target.closest("button"); if (b) presetRepair(b.dataset.p);
 });
@@ -1186,6 +1427,7 @@ if (passed) $("lot-url").value = passed;
 /* Курс и лот грузятся независимо: раньше лот ждал ответа по курсу через .then()
    и не начинался вовсе, если НБУ или сервер задумались. */
 loadRates();
+loadJournal();
 if (passed && !fromHash) loadLot();
 </script>
 </body>
