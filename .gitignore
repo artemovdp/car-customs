@@ -21,3 +21,6 @@ journal.json
 # вывод туннеля
 share*.out
 share*.err
+
+# отчёты по лотам: там цены покупки и ремонта
+reports/

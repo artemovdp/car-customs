@@ -60,7 +60,7 @@ def put_prediction(lot, data):
             e[k] = data[k]
     e["predicted"] = {k: data[k] for k in
                       ("repair", "sale", "ceiling", "market_median", "market_n",
-                       "cut", "bid", "structure", "damaged")
+                       "cut", "bid", "structure", "damaged", "items", "costs")
                       if data.get(k) is not None}
     e["predicted"]["date"] = time.strftime("%Y-%m-%d")
     write(db)

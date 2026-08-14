@@ -1202,6 +1202,20 @@ async function saveJournal(){
         bid: L.current_bid || null,
         structure: LAST_ANALYSIS ? LAST_ANALYSIS.structure : null,
         damaged:   LAST_ANALYSIS ? LAST_ANALYSIS.damaged   : null,
+        /* Смета построчно, а не только итогом: отчёт потом сверяет со счётом
+           из сервиса по каждой позиции, иначе «вылезли» и «сэкономили»
+           не разложить. */
+        items: REPAIR.map(([zone, name], i) => ({
+          name, zone,
+          on:    $("rc"+i).checked && !$("rc"+i).closest(".rep-row").hidden,
+          price: +$("rp"+i).value || 0,
+          lo: RANGE[i][0], hi: RANGE[i][1],
+        })).filter(r => r.on),
+        /* и расходы, чтобы отчёт не пересобирал их из воздуха */
+        costs: Object.fromEntries(["fees","freight","broker","agent","transfer",
+                                   "delivery","regfee","usd","eur","pm","vol",
+                                   "year","origin","autofee"]
+          .map(k => [k, $(k).type === "checkbox" ? $(k).checked : (+$(k).value || 0)])),
       }),
     });
     const j = await r.json();
