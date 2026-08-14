@@ -938,23 +938,39 @@ function partOfRow(rowName){
 async function analyzePhotos(){
   const btn = $("ai-btn"), note = $("ai-note");
   if (!LAST_LOT || !LAST_LOT.lot) return;
-  btn.disabled = true; btn.textContent = "Смотрю снимки…";
+
+  /* Три минуты без единого признака жизни выглядят как зависание — на это
+     уже напоролись. Поэтому тикающий счётчик: видно, что процесс идёт. */
+  const shots = (LAST_LOT.photos || []).length;
+  const t0 = Date.now();
+  const tick = () => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    btn.textContent = `Смотрю снимки… ${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
+  };
+  tick();
+  const timer = setInterval(tick, 1000);
+
+  btn.disabled = true;
   note.className = "ai-note";
-  note.textContent = "Читаю фотографии по одной — это занимает около трёх минут.";
+  note.innerHTML = `Читаю ${shots} снимков по одному — обычно 2–4 минуты. ` +
+    `Страницу можно не держать открытой: разбор сохранится в ` +
+    `<code>lots/${esc(LAST_LOT.lot)}/analysis.json</code> и подставится, ` +
+    `когда откроешь лот заново.`;
   try{
     const j = await (await fetch("/api/analyze?lot=" + encodeURIComponent(LAST_LOT.lot))).json();
     if (!j.ok) throw new Error(j.error || "не вышло");
     applyAnalysis(j.analysis);
     note.className = "ai-note";
-    note.textContent = "Смета уточнена. Разбор добавляет позиции, но не снимает: " +
-      "по одним и тем же снимкам он то видит разбитую фару, то считает её целой, " +
-      "поэтому лишнее снимай сам, сверившись с фото.";
+    note.textContent = "Смета уточнена по фотографиям. Что разбор счёл целым — " +
+      "с того галочки сняты, пробегись по ним глазами: именно здесь он ошибается " +
+      "чаще всего.";
   }catch(e){
     note.className = "ai-note err";
     note.textContent = e instanceof TypeError
       ? "Разбор работает только с локальным сервером — запусти start.bat."
       : "Не вышло: " + e.message;
   }finally{
+    clearInterval(timer);
     btn.disabled = false; btn.textContent = "Разобрать фотографии";
   }
 }

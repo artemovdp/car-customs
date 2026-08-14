@@ -14,6 +14,12 @@ import sys, json, re, subprocess, pathlib, shutil, argparse
 ROOT = pathlib.Path(__file__).parent
 LOTS = ROOT / "lots"
 
+# Сервер запускается через pythonw, то есть без консоли. Когда он дёргает
+# claude — консольную программу — Windows выделяет ей новое окно. Оно пустое,
+# потому что вывод перехвачен, и выглядит как зависший чёрный квадрат.
+NO_WINDOW = ({"creationflags": subprocess.CREATE_NO_WINDOW}
+             if hasattr(subprocess, "CREATE_NO_WINDOW") else {})
+
 # Названия совпадают со строками сметы в index.html — по ним ставятся галочки.
 PARTS = ["Бампер передний", "Фара", "Крыло переднее", "Капот", "Решётка радиатора",
          "Радиатор", "Верхняя панель передка", "Подвеска передняя", "Диск и шина",
@@ -83,7 +89,7 @@ def analyze(lot, model="sonnet"):
         ["claude", "-p", prompt, "--allowedTools", "Read", "Glob",
          "--model", model, "--output-format", "json"],
         cwd=str(ROOT), capture_output=True, text=True,
-        encoding="utf-8", errors="replace", timeout=600)
+        encoding="utf-8", errors="replace", timeout=600, **NO_WINDOW)
     if p.returncode != 0:
         raise RuntimeError((p.stderr or p.stdout or "claude вернул ошибку")[:400])
 

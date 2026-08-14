@@ -144,10 +144,21 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             try:
                 log(f"разбираю фото лота {lot}")
-                self._json(200, {"ok": True, "analysis": analyze(lot)})
-            except Exception as e:
-                log(f"разбор не вышел: {e}")
-                self._json(502, {"ok": False, "error": str(e)[:400]})
+                try:
+                    data = analyze(lot)
+                except Exception as e:
+                    log(f"разбор не вышел: {e}")
+                    self._json(502, {"ok": False, "error": str(e)[:400]})
+                    return
+                # Разбор идёт минуты, и вкладку за это время закрывают — тогда
+                # ответ уходит в оборванный сокет. Это не провал: результат уже
+                # лежит в analysis.json и подставится при следующем открытии
+                # лота. Раньше такое писалось в лог как «разбор не вышел».
+                try:
+                    self._json(200, {"ok": True, "analysis": data})
+                except OSError:
+                    log(f"разбор лота {lot} готов, но клиент уже отключился — "
+                        f"результат в lots/{lot}/analysis.json")
             finally:
                 _claude_lock.release()
             return
