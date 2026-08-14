@@ -193,6 +193,17 @@ details.local > summary:hover{color:var(--accent);}
 .rep-row .rng.own{color:var(--accent);}
 .rep-src{margin:5px 0 0;font-family:var(--f-mono);font-size:10px;color:var(--muted);
   letter-spacing:.02em;}
+.mode{display:flex;gap:0;padding:12px 16px 0;}
+.mode button{flex:1;padding:9px 10px;font-family:var(--f-mono);font-size:11px;
+  letter-spacing:.06em;text-transform:uppercase;cursor:pointer;color:var(--muted);
+  background:var(--surface);border:1px solid var(--line);}
+.mode button:first-child{border-radius:6px 0 0 6px;}
+.mode button:last-child{border-radius:0 6px 6px 0;border-left:none;}
+.mode button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);}
+.mode-note{margin:9px 16px 14px;font-size:11.5px;line-height:1.5;color:var(--muted);}
+.mode.base{padding:0 0 9px;}
+.mode.base button{padding:5px 8px;font-size:9.5px;letter-spacing:.08em;}
+.mode.base button:disabled{opacity:.35;cursor:not-allowed;}
 .jr{padding:12px 16px 14px;border-top:1px solid var(--line);}
 .jr-note{margin:8px 0 0;font-size:11.5px;line-height:1.5;color:var(--muted);}
 .jr-note.ok{color:var(--accent);}
@@ -441,6 +452,15 @@ python serve.py</pre></div>
     <!-- ══ ВВОД ════════════════════════════════════════════════════ -->
     <div>
       <section class="card">
+        <div class="card-h">Зачем машина</div>
+        <div class="mode" id="mode">
+          <button type="button" data-m="self" class="on">Себе</button>
+          <button type="button" data-m="sell">На перепродажу</button>
+        </div>
+        <p class="mode-note" id="mode-note"></p>
+      </section>
+
+      <section class="card">
         <div class="card-h">Автомобиль</div>
         <div class="card-b">
           <div class="field"><label for="year">Год выпуска</label><input type="number" id="year" step="1" value="2024"></div>
@@ -481,11 +501,16 @@ python serve.py</pre></div>
           <div class="field"><label for="repair">Ремонт в Украине<span class="in-base out-base">вне базы</span>
               <span class="hint">складывается из позиций ниже</span></label>
             <input type="number" id="repair" step="100" value="4750"></div>
-          <div class="field"><label for="sale">Цена продажи в Украине
-              <span class="hint">поставь свою — отсюда считается прибыль</span></label>
+          <div class="field"><label for="sale"><span id="sale-lbl">Такая же машина в Украине</span>
+              <span class="hint" id="sale-hint">во столько обойдётся не возиться —
+                отсюда считается выгода</span></label>
             <input type="number" id="sale" step="500" value="36000"></div>
           <div class="mkt" id="mkt" hidden>
             <div class="mkt-h">Рынок Украины <span id="mkt-src"></span></div>
+            <div class="mode base" id="mkt-base">
+              <button type="button" data-b="crashed">после ДТП</button>
+              <button type="button" data-b="clean">целые</button>
+            </div>
             <div class="mkt-row"><span id="mkt-lbl">Медиана рынка</span><b id="mkt-med">—</b></div>
             <div class="mkt-row" id="mkt-km-row" hidden>
               <span id="mkt-km-lbl">Поправка на пробег</span><b id="mkt-km">—</b></div>
@@ -494,7 +519,7 @@ python serve.py</pre></div>
               <label for="cut" id="mkt-cut-lbl">Скидка за аварийную историю</label>
               <span><input type="number" id="cut" step="1" min="0" max="90" value="30">%</span>
             </div>
-            <div class="mkt-row out"><span>Реальная цена продажи</span><b id="mkt-sug">—</b></div>
+            <div class="mkt-row out"><span id="mkt-out-lbl">Столько стоит купить здесь</span><b id="mkt-sug">—</b></div>
             <button class="btn" type="button" id="mkt-apply">Вернуть расчётную</button>
           </div>
           <p class="sale-note" id="sale-note">Подставить эту цифру неоткуда: украинский
@@ -535,7 +560,8 @@ python serve.py</pre></div>
       <section class="card">
         <div class="card-h">Выше какой ставки не заходить</div>
         <div class="card-b" style="padding-bottom:0">
-          <div class="field"><label for="margin">Минимальная маржа, ради которой стоит связываться</label>
+          <div class="field"><label for="margin" id="margin-lbl">Минимальная выгода,
+              ради которой стоит возиться</label>
             <input type="number" id="margin" step="250" value="4000"></div>
         </div>
         <div class="rev-out">
@@ -682,19 +708,26 @@ function render(){
   R.push(line("Ремонт","вне базы",()=>+$("repair").value||0,"pad"));
   R.push(line("Себестоимость с ремонтом","",s=>s.withRepair,"grand"));
 
-  R.push(`<tr class="profit"><td>Прибыль при продаже за ${money(sale)}</td>` +
+  R.push(`<tr class="profit"><td>${SELF ? `Экономия против покупки за ${money(sale)}`
+                                        : `Прибыль при продаже за ${money(sale)}`}</td>` +
     S.map(s => {const p = sale - s.withRepair;
       return `<td class="n ${p>=0?"pos":"neg"}">${p>=0?"+":"−"}${money(Math.abs(p))}</td>`;
     }).join("") + "</tr>");
   $("sc-rows").innerHTML = R.join("");
 
-  /* обратный расчёт — бинарный поиск, пороги учитываются сами */
+  /* обратный расчёт — бинарный поиск, пороги учитываются сами.
+     Математика в обоих режимах одна: потолок там, где всё вместе сравнивается
+     с ценой готовой машины в Украине. Разница в том, что это за цена —
+     за сколько продам или сколько отдал бы за такую же здесь. */
   const budget = sale - (+$("repair").value||0) - (+$("margin").value||0);
   const out = $("maxbid"), sub = $("maxbid-sub");
   if (budget <= calc(0).total){
     MAXBID = 0;
     out.textContent = "не заходить"; out.classList.add("bad");
-    sub.textContent = "Цена продажи не покрывает даже налоги и расходы при нулевой ставке. Сделки нет.";
+    sub.textContent = SELF
+      ? "Даже при нулевой ставке пригон выходит дороже, чем купить такую же " +
+        "в Украине. Смысла нет — бери на месте."
+      : "Цена продажи не покрывает даже налоги и расходы при нулевой ставке. Сделки нет.";
   } else {
     let lo = 0, hi = 500000;
     for (let i=0;i<60;i++){const mid=(lo+hi)/2; if (calc(mid).total>budget) hi=mid; else lo=mid;}
@@ -702,7 +735,12 @@ function render(){
     MAXBID = mb;
     out.textContent = money(mb); out.classList.remove("bad");
     const over = S.map((s,i)=>s.bid>mb ? ["низкая","средняя","высокая"][i] : null).filter(Boolean);
-    sub.innerHTML = `Себестоимость с ремонтом на этой ставке — <b>${money(c.withRepair)}</b>, маржа ${money(+$("margin").value||0)}. ` +
+    sub.innerHTML =
+      (SELF
+        ? `Машина обойдётся в <b>${money(c.withRepair)}</b> вместо ${money(sale)} ` +
+          `в Украине — выгода ${money(+$("margin").value||0)}. `
+        : `Себестоимость с ремонтом на этой ставке — <b>${money(c.withRepair)}</b>, ` +
+          `маржа ${money(+$("margin").value||0)}. `) +
       (over.length ? `<b style="color:var(--signal)">Выше потолка: ${over.join(", ")}.</b>`
                    : `Все три сценария в пределах потолка.`);
   }
@@ -985,6 +1023,37 @@ function applyAnalysis(a){
       `эквивалент $${esc(a.cost_usd||0)} по подписке, счёта не будет</div>`;
 }
 
+/* ─── себе или на перепродажу ─────────────────────────────────────── */
+/* Считается в обоих режимах одинаково — меняется то, с чем сравнивается
+   итог. На перепродажу это цена, по которой машину заберут, и из медианы
+   надо вычесть уступку покупателю. Себе — цена, которую пришлось бы отдать
+   за такую же здесь, и уступать некому: торг работает в твою пользу. */
+let SELF = true;
+
+function setMode(m, redraw = true){
+  SELF = m !== "sell";
+  [...$("mode").children].forEach(b => b.classList.toggle("on", (b.dataset.m === "self") === SELF));
+  try{ localStorage.setItem("carmode", SELF ? "self" : "sell"); }catch(e){}
+
+  $("mode-note").innerHTML = SELF
+    ? "Считаю, дешевле ли пригнать, чем купить готовую в Украине. Налога с " +
+      "продажи нет, из расходов на выходе — только постановка на учёт, а она " +
+      "и так в расчёте: пенсионный сбор плюс регистрация."
+    : "Считаю прибыль от перепродажи. Не забудь: со <b>второй</b> легковой в " +
+      "году физлицо платит 5% ПДФО + 5% військового збору, с третьей — 18% + 5%. " +
+      "В расчёт это не заложено — вычти вручную из цены продажи.";
+
+  $("sale-lbl").textContent = SELF ? "Такая же машина в Украине" : "Цена продажи в Украине";
+  $("sale-hint").textContent = SELF
+    ? "во столько обойдётся не возиться — отсюда считается выгода"
+    : "поставь свою — отсюда считается прибыль";
+  $("margin-lbl").textContent = SELF
+    ? "Минимальная выгода, ради которой стоит возиться"
+    : "Минимальная маржа, ради которой стоит связываться";
+
+  if (redraw){ if (LAST_LOT) showMarket(LAST_LOT); else render(); }
+}
+
 /* ─── журнал: прогноз против того, что вышло ──────────────────────── */
 /* Пока факты не записаны, скидка от медианы, вилки в смете и потолок ставки
    остаются догадками, и поправить их нечем. Прогноз кладём отсюда, факты
@@ -1058,7 +1127,7 @@ async function loadJournal(){
 }
 
 /* ─── база цен украинского рынка ──────────────────────────────────── */
-let MARKET = null, MKT_HIT = null, MKT_BASE = null, MKT_KM = 0;
+let MARKET = null, MKT_HIT = null, MKT_BASE = null, MKT_KM = 0, MKT_PREFER = null;
 /* ?v= обходит кеш: без него после пересбора базы страница неделю показывает
    старые медианы — и локально, и на GitHub Pages. */
 fetch("market.json?v=" + Date.now()).then(r => r.ok ? r.json() : null)
@@ -1097,9 +1166,23 @@ function showMarket(L){
        отремонтированного пригона. Скидку к ним почти не применяем: она уже
        в цене. Если аварийных мало, откатываемся на целые и режем сильнее. */
     const cr = src.crashed, cl = src.clean;
-    const useCrashed = cr && cr.n >= 5;
-    MKT_BASE = useCrashed ? cr : (cl && cl.n >= 3 ? cl : src);
-    if (!$("cut").dataset.touched) $("cut").value = useCrashed ? 10 : 25;
+    const okCr = !!(cr && cr.n >= 5), okCl = !!(cl && cl.n >= 3);
+    /* Кнопки базы: чего в выборке нет — то и нажать нельзя. */
+    const useCrashed = MKT_PREFER === "clean" ? !okCl
+                     : MKT_PREFER === "crashed" ? okCr
+                     : okCr;
+    MKT_BASE = useCrashed ? cr : (okCl ? cl : src);
+    [...$("mkt-base").children].forEach(b => {
+      const isCr = b.dataset.b === "crashed";
+      b.disabled = isCr ? !okCr : !okCl;
+      b.classList.toggle("on", isCr === useCrashed);
+    });
+
+    /* Скидка значит разное. На перепродажу это уступка покупателю поверх
+       медианы. Себе — наоборот, торг в твою пользу, и он куда скромнее:
+       сбить с запрошенной цены больше 5–7% обычно не выходит. */
+    if (!$("cut").dataset.touched)
+      $("cut").value = SELF ? 5 : (useCrashed ? 10 : 25);
 
     /* Поправка на пробег. Наклон посчитан по объявлениям этого же года
        и уже сжат к общему — внутри года пробег объясняет мало. */
@@ -1114,9 +1197,12 @@ function showMarket(L){
     $("mkt-lbl").textContent = useCrashed ? "Медиана после ДТП" : "Медиана целых";
     $("mkt-med").textContent = "$" + fmt(MKT_BASE.median, 0);
     $("mkt-iqr").textContent = "$" + fmt(MKT_BASE.p25, 0) + " – $" + fmt(MKT_BASE.p75, 0);
-    $("mkt-cut-lbl").textContent = useCrashed
-      ? "Ещё скидка: торг и американский тайтл"
-      : "Скидка за аварийную историю";
+    $("mkt-cut-lbl").textContent = SELF
+      ? "Сколько сторгуешь с запрошенной"
+      : useCrashed ? "Ещё скидка: торг и американский тайтл"
+                   : "Скидка за аварийную историю";
+    $("mkt-out-lbl").textContent = SELF
+      ? "Столько стоит купить здесь" : "Реальная цена продажи";
     $("mkt-km-row").hidden = !MKT_KM;
     if (MKT_KM){
       const sign = dKm > 0 ? "+" : "−";
@@ -1134,13 +1220,24 @@ function showMarket(L){
              : `Шильдик <b>${esc(bg)}</b> в базе за этот год не набрался — ` +
                `в основе весь год вперемешку, от 20d до M40i. `)
       : "";
-    note.innerHTML = bgNote +
-      (useCrashed
-        ? `За основу взяты объявления с пометкой <b>«Був в ДТП»</b> — это прямой аналог ` +
-          `отремонтированного пригона, скидка за аварийность в их цене уже сидит.${other} `
-        : `Аварийных объявлений мало, поэтому основа — целые машины, ` +
-          `и скидка нужна полная. `) +
-      `Это <b>запрошенные</b> цены, а не цены сделок: реально продают на 5–10% ниже. ` +
+    const baseNote = SELF
+      ? (useCrashed
+          ? `Сравнение с объявлениями <b>«Був в ДТП»</b> — то есть с такой же ` +
+            `восстановленной машиной, какую получишь сам.${other} Если готов ` +
+            `переплатить за небитую, переключи базу на «целые»: потолок ставки ` +
+            `тогда вырастет, но и сравнение станет честнее в другую сторону. `
+          : `Сравнение с <b>целыми</b> машинами. Учти: у тебя на руках будет ` +
+            `восстановленная после удара, и по деньгам это разные вещи. `)
+      : (useCrashed
+          ? `За основу взяты объявления с пометкой <b>«Був в ДТП»</b> — это прямой аналог ` +
+            `отремонтированного пригона, скидка за аварийность в их цене уже сидит.${other} `
+          : `Аварийных объявлений мало, поэтому основа — целые машины, ` +
+            `и скидка нужна полная. `);
+    note.innerHTML = bgNote + baseNote +
+      (SELF
+        ? `Это <b>запрошенные</b> цены: столько просят, реальная сделка обычно на ` +
+          `5–10% ниже — на это и поле скидки. `
+        : `Это <b>запрошенные</b> цены, а не цены сделок: реально продают на 5–10% ниже. `) +
       (MKT_BASE.n < 15 ? `<b>Выборка мелкая (${MKT_BASE.n}) — проверь глазами.</b> ` : "") + link;
   } else {
     box.hidden = true;
@@ -1338,6 +1435,13 @@ try{
 IDS.forEach(k=>{ $(k).addEventListener("input",render); $(k).addEventListener("change",render); });
 $("ai-btn").addEventListener("click", analyzePhotos);
 $("jr-btn").addEventListener("click", saveJournal);
+$("mode").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (b) setMode(b.dataset.m);
+});
+$("mkt-base").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (b && !b.disabled){ MKT_PREFER = b.dataset.b; if (LAST_LOT) showMarket(LAST_LOT); }
+});
 $("rep-presets").addEventListener("click", e => {
   const b = e.target.closest("button"); if (b) presetRepair(b.dataset.p);
 });
@@ -1407,6 +1511,9 @@ function readHash(){
 }
 
 buildRepair();
+let savedMode = "self";
+try{ savedMode = localStorage.getItem("carmode") || "self"; }catch(e){}
+setMode(savedMode, false);
 render();
 buildBookmarklet();
 
